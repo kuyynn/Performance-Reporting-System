@@ -1,12 +1,19 @@
 package model
 
+import "time"
+
 type User struct {
 	ID           int64
 	Username     string
+	Email        string    `gorm:"size:80;unique;not null" json:"email"`
 	PasswordHash string
 	FullName     string
+	RoleID       string    `gorm:"type:uuid;not null" json:"role_id"`
 	Role         string
 	Permissions  []string
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type LoginRequest struct {
