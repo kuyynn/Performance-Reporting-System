@@ -3,14 +3,13 @@ package model
 import "time"
 
 type User struct {
-	ID           int64
-	Username     string
-	Email        string    `gorm:"size:80;unique;not null" json:"email"`
-	PasswordHash string
-	FullName     string
-	RoleID       string    `gorm:"type:uuid;not null" json:"role_id"`
-	Role         string
-	Permissions  []string
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+	FullName     string    `json:"full_name"`
+	RoleID       string    `json:"role_id"`
+	Role         string    `json:"role"`
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -26,17 +25,17 @@ type LogoutRequest struct {
 }
 
 type UserCreateRequest struct {
-	Username string `json:"username" validate:"required"`
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required"`
-	FullName string `json:"full_name" validate:"required"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
 }
 
 type UserUpdateRequest struct {
 	ID       int64  `json:"id"`
-	Username string `json:"username" validate:"required"`
-	Email    string `json:"email" validate:"required,email"`
-	FullName string `json:"full_name" validate:"required"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	FullName string `json:"full_name"`
 }
 
 type RefreshTokenRequest struct {
