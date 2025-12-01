@@ -2,47 +2,34 @@ package utils
 
 import (
 	"time"
-	"uas/app/model"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type JWTCustomClaims struct {
-	UserID      string             `json:"sub"`
-	FullName    string             `json:"fullName"`
-	Username    string             `json:"username"`
-	Role        string             `json:"role"`
-	Permissions []string           `json:"perms"`
+type Claims struct {
+	UserID   int64  `json:"id"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(User model.UserResponse, jwsScret []byte) (string, string, error) {
-	var AccessExpiration = time.Now().Add(15 * time.Minute)
-	AccessClaims := model.Claims{
-		UserID:   User.ID,
-		Username: User.Username,
-		Role:     User.Role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(AccessExpiration),
-		},
+func GenerateToken(id int64, username string, role string, secret []byte) (string, error) {
+	claims := jwt.MapClaims{
+		"id":       id,
+		"username": username,
+		"role":     role,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
 	}
-	AccessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, AccessClaims)
-	accessString, err := AccessToken.SignedString(jwsScret)
-	if err != nil {
-		return "", "", err
-	}
-	RefreshExpiration := time.Now().Add(7 * 24 * time.Hour)
-	RefreshClaims := model.Claims{
-		UserID: User.ID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(RefreshExpiration),
-		},
-	}
-	RefreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, RefreshClaims)
-	refreshString, err := RefreshToken.SignedString([]byte(jwsScret))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secret)
+}
 
-	if err != nil {
-		return "", "", err
+func ParseToken(tokenString string, secret []byte) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		return secret, nil
+	})
+	if err != nil { return nil, err }
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
 	}
-
-	return accessString, refreshString, nil
+	return nil, jwt.ErrTokenInvalidClaims
 }
