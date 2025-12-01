@@ -3,12 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
-	// "encoding/json"
-	// "fmt"
 	"uas/app/model"
 )
 
-// Interface untuk UserRepository
 type UserRepository interface {
 	Create(ctx context.Context, user model.UserCreateRequest) (int64, error)
 	Update(ctx context.Context, user model.UserUpdateRequest) error
@@ -16,41 +13,60 @@ type UserRepository interface {
 	FindById(ctx context.Context, userID int64) (*model.UserResponse, error)
 	FindAll(ctx context.Context) (*[]model.UserResponse, error)
 	FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error)
-	GetPermissionsByUserID(userID int64) ([]model.Permission, error)
+	GetPermissionsByUserID(userID int64) ([]string, error)
 	Logout()
 }
 
-// Implementasi UserRepository
-type UserRepositoryy struct {
+type UserRepositoryImpl struct {
 	DB *sql.DB
 }
 
-// CRUD
-func (r *UserRepositoryy) Create(ctx context.Context, user model.UserCreateRequest) (int64, error) {
-	sql := `INSERT INTO users(username, full_name, email, password_hash, role_id) VALUES (?, ?, ?, ?, ?)`
-	res, err := r.DB.ExecContext(ctx, sql, user.Username, user.FullName, user.Email, user.Password)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+func NewUserRepository(db *sql.DB) UserRepository {
+	return &UserRepositoryImpl{DB: db}
 }
 
-func (r *UserRepositoryy) Update(ctx context.Context, user model.UserUpdateRequest) error {
-	sql := `UPDATE users SET username=?, full_name=?, email=?, password_hash=?, role_id=? WHERE id=?`
-	_, err := r.DB.ExecContext(ctx, sql, user.Username, user.FullName, user.Email, user.ID)
+// CREATE USER (POSTGRESQL)
+func (r *UserRepositoryImpl) Create(ctx context.Context, user model.UserCreateRequest) (int64, error) {
+	sqlQuery := `INSERT INTO users(username, full_name, email, password_hash, role_id)
+		         VALUES ($1, $2, $3, $4, $5)
+				 RETURNING id`
+
+	var id int64
+	err := r.DB.QueryRowContext(ctx, sqlQuery,
+		user.Username,
+		user.FullName,
+		user.Email,
+		user.Password,
+		"default",
+	).Scan(&id)
+
+	return id, err
+}
+
+// UPDATE USER
+func (r *UserRepositoryImpl) Update(ctx context.Context, user model.UserUpdateRequest) error {
+	sqlQuery := `UPDATE users SET username=$1, full_name=$2, email=$3 WHERE id=$4`
+	_, err := r.DB.ExecContext(ctx, sqlQuery,
+		user.Username,
+		user.FullName,
+		user.Email,
+		user.ID,
+	)
 	return err
 }
 
-func (r *UserRepositoryy) Delete(ctx context.Context, userID int64) error {
-	sql := `DELETE FROM users WHERE id=?`
-	_, err := r.DB.ExecContext(ctx, sql, userID)
+// DELETE USER
+func (r *UserRepositoryImpl) Delete(ctx context.Context, userID int64) error {
+	sqlQuery := `DELETE FROM users WHERE id=$1`
+	_, err := r.DB.ExecContext(ctx, sqlQuery, userID)
 	return err
 }
 
-// Find
-func (r *UserRepositoryy) FindAll(ctx context.Context) (*[]model.UserResponse, error) {
-	sql := `SELECT id, username, full_name, role FROM users`
-	rows, err := r.DB.QueryContext(ctx, sql)
+// FIND ALL USERS
+func (r *UserRepositoryImpl) FindAll(ctx context.Context) (*[]model.UserResponse, error) {
+	sqlQuery := `SELECT id, username, full_name, role_id FROM users`
+
+	rows, err := r.DB.QueryContext(ctx, sqlQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -64,13 +80,14 @@ func (r *UserRepositoryy) FindAll(ctx context.Context) (*[]model.UserResponse, e
 		}
 		users = append(users, u)
 	}
-
 	return &users, nil
 }
 
-func (r *UserRepositoryy) FindById(ctx context.Context, id int64) (*model.UserResponse, error) {
-	sql := `SELECT id, username, full_name, role FROM users WHERE id=?`
-	row := r.DB.QueryRowContext(ctx, sql, id)
+// FIND USER BY ID
+func (r *UserRepositoryImpl) FindById(ctx context.Context, id int64) (*model.UserResponse, error) {
+	sqlQuery := `SELECT id, username, full_name, role_id FROM users WHERE id=$1`
+
+	row := r.DB.QueryRowContext(ctx, sqlQuery, id)
 
 	var u model.UserResponse
 	if err := row.Scan(&u.ID, &u.Username, &u.FullName, &u.Role); err != nil {
@@ -79,28 +96,34 @@ func (r *UserRepositoryy) FindById(ctx context.Context, id int64) (*model.UserRe
 	return &u, nil
 }
 
-func (r *UserRepositoryy) FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error) {
-	sql := `SELECT u.id, u.username, u.full_name, u.email, u.password_hash, r.name
-			FROM users u
-			INNER JOIN roles r ON u.role_id = r.id
-			WHERE u.username=? OR u.email=?`
-	row := r.DB.QueryRow(sql, usernameOrEmail, usernameOrEmail)
+// LOGIN FIND
+func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error) {
+	sqlQuery := `SELECT id, username, full_name, email, password_hash, role_id, is_active
+		         FROM users
+		         WHERE username=$1 OR email=$1`
+
+	row := r.DB.QueryRow(sqlQuery, usernameOrEmail)
 
 	var u model.User
-	if err := row.Scan(&u.ID, &u.Username, &u.FullName, &u.Email, &u.PasswordHash, &u.RoleID, &u.Role); err != nil {
+	if err := row.Scan(
+		&u.ID, &u.Username, &u.FullName, &u.Email,
+		&u.PasswordHash, &u.RoleID, &u.IsActive,
+	); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-// Permissions 
-func (r *UserRepositoryy) GetPermissionsByUserID(userID int64) ([]string, error) {
+// PERMISSIONS
+func (r *UserRepositoryImpl) GetPermissionsByUserID(userID int64) ([]string, error) {
 	query := `
 	SELECT p.name
 	FROM permissions p
 	JOIN role_permissions rp ON rp.permission_id = p.id
 	JOIN users u ON u.role_id = rp.role_id
-	WHERE u.id = ?`
+	WHERE u.id = $1
+	`
+
 	rows, err := r.DB.Query(query, userID)
 	if err != nil {
 		return nil, err
@@ -118,7 +141,4 @@ func (r *UserRepositoryy) GetPermissionsByUserID(userID int64) ([]string, error)
 	return perms, nil
 }
 
-// Logout 
-func (r *UserRepositoryy) Logout() {
-	// Kosong dulu, nanti bisa implement session/token revoke
-}
+func (r *UserRepositoryImpl) Logout() {}
