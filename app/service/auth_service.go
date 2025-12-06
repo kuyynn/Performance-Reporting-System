@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"errors"
 	"uas/app/model"
 	"uas/app/repository"
@@ -13,61 +12,57 @@ type AuthService struct {
 }
 
 func NewAuthService(userRepo repository.UserRepository) *AuthService {
-	return &AuthService{
-		userRepo: userRepo,
-	}
+	return &AuthService{userRepo: userRepo}
 }
 
 type LoginInput struct {
-	Username string
-	Password string
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type LoginOutput struct {
-	Token       string
-	User        *model.User
-	Permissions []model.Permission
+	Token       string       `json:"token"`
+	User        *model.User  `json:"user"`
+	Permissions []string     `json:"permissions"`
 }
 
 func (s *AuthService) Login(input LoginInput) (*LoginOutput, error) {
 
-	// cek user berdasarkan username / email
+	// 1. cek user
 	user, err := s.userRepo.FindByUsernameOrEmail(input.Username)
 	if err != nil {
 		return nil, errors.New("invalid_credentials")
 	}
 
-	// cek user aktif apa nggak
 	if !user.IsActive {
 		return nil, errors.New("user_inactive")
 	}
 
-	// cek password cocok apa nggak
+	// 2. cek password 
 	if !utils.CheckPassword(user.PasswordHash, input.Password) {
 		return nil, errors.New("invalid_credentials")
 	}
 
-	// ambil detail user dari tabel (biasanya buat token)
-	userDetail, err := s.userRepo.FindById(context.Background(), user.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	// ambil permissions user berdasarkan role
+	// 3. ambil permissions
 	perms, err := s.userRepo.GetPermissionsByUserID(user.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// secret key buat generate token
-	secret := []byte("RAHASIA_TOKEN_APLIKASI") // ntar bisa disimpen di env biar aman
+	// 4. generate token
+	secret := []byte("RAHASIA_TOKEN_APLIKASI")
 
-	// generate token
-	token, _, err := utils.GenerateToken(*userDetail, secret)
+	token, err := utils.GenerateToken(
+		user.ID,
+		user.Username,
+		user.Role,
+		secret,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	// 5. return data
 	return &LoginOutput{
 		Token:       token,
 		User:        user,
