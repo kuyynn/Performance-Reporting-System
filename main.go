@@ -1,8 +1,9 @@
 package main
 
 import (
-	// "database/sql"
 	"log"
+
+	"uas/database"
 	"uas/app/repository"
 	"uas/app/service"
 	"uas/config"
@@ -17,21 +18,37 @@ func main() {
 
 	log.Println("DSN:", cfg.PostgresDSN)
 
-	db, err := config.ConnectPostgres(cfg.PostgresDSN)
+	// CONNECT POSTGRES
+	db, err := database.ConnectPostgres(cfg.PostgresDSN)
 	if err != nil {
 		log.Fatalf("pg connect: %v", err)
 	}
 	defer db.Close()
+
+	// CONNECT MONGO
+	mongoClient, err := database.ConnectMongo(cfg.MongoURI)
+	if err != nil {
+		log.Fatalf("mongo connect: %v", err)
+	}
 
 	// init repos & services
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo)
 	authService := service.NewAuthService(userRepo)
 
+	achRepo := repository.NewAchievementRepository(db)
+	achService := service.NewAchievementService(achRepo, mongoClient)
+
 	app := fiber.New()
 
-	// routes: combine user & auth
-	routes.SetupRoutes(app, userService, authService, middleware.AuthRequired([]byte(cfg.JWTSecret)))
+	// routes
+	routes.SetupRoutes(
+		app,
+		userService,
+		authService,
+		achService,
+		middleware.AuthRequired([]byte(cfg.JWTSecret)),
+	)
 
 	log.Fatal(app.Listen(":" + cfg.AppPort))
 }
