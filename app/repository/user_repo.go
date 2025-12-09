@@ -98,20 +98,29 @@ func (r *UserRepositoryImpl) FindById(ctx context.Context, id int64) (*model.Use
 
 // LOGIN FIND
 func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error) {
-	sqlQuery := `SELECT id, username, full_name, email, password_hash, role_id, is_active
-		         FROM users
-		         WHERE username=$1 OR email=$1`
-
-	row := r.DB.QueryRow(sqlQuery, usernameOrEmail)
-
-	var u model.User
-	if err := row.Scan(
-		&u.ID, &u.Username, &u.FullName, &u.Email,
-		&u.PasswordHash, &u.RoleID, &u.IsActive,
-	); err != nil {
-		return nil, err
-	}
-	return &u, nil
+    sqlQuery := `
+        SELECT u.id, u.username, u.full_name, u.email,
+               u.password_hash, u.role_id, u.is_active,
+               r.name AS role_name
+        FROM users u
+        JOIN roles r ON r.id = u.role_id
+        WHERE u.username=$1 OR u.email=$1
+    `
+    row := r.DB.QueryRow(sqlQuery, usernameOrEmail)
+    var u model.User
+    if err := row.Scan(
+        &u.ID,
+        &u.Username,
+        &u.FullName,
+        &u.Email,
+        &u.PasswordHash,
+        &u.RoleID,
+        &u.IsActive,
+        &u.Role, // ← SEKARANG INI VALID
+    ); err != nil {
+        return nil, err
+    }
+    return &u, nil
 }
 
 // PERMISSIONS
