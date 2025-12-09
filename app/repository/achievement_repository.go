@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
-	
+	"errors"
 )
 
 type AchievementRepository struct {
@@ -45,4 +45,30 @@ func (r *AchievementRepository) InsertReference(
 
 	_, err := r.DB.ExecContext(ctx, query, studentID, mongoID)
 	return err
+}
+
+// Update status dari draft menjadi submitted
+func (r *AchievementRepository) Submit(ctx context.Context, achievementID string, studentID string) error {
+
+	query := `
+        UPDATE achievement_references
+        SET status = 'submitted',
+            submitted_at = NOW(),
+            updated_at = NOW()
+        WHERE mongo_achievement_id = $1
+          AND student_id = $2
+          AND status = 'draft'
+    `
+
+	result, err := r.DB.ExecContext(ctx, query, achievementID, studentID)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errors.New("cannot submit: not found or not in draft status")
+	}
+
+	return nil
 }
