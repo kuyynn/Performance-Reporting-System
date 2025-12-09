@@ -34,5 +34,6 @@ func SetupRoutes(
 	api.Post("/v1/achievements", achievementService.Create)
 	api.Post("/v1/achievements/:id/submit", achievementService.Submit)
 	api.Get("/v1/achievements/me", achievementService.GetMyAchievements)
+	api.Get("/v1/achievements/supervised", achievementService.GetSupervisedAchievements)
 
 }
