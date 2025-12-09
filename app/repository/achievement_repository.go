@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 type AchievementRepository struct {
@@ -72,3 +73,72 @@ func (r *AchievementRepository) Submit(ctx context.Context, achievementID string
 
 	return nil
 }
+
+// Ambil semua achievement milik student (di PostgreSQL)
+func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID string) ([]map[string]interface{}, error) {
+
+	query := `
+        SELECT 
+            mongo_achievement_id,
+            status,
+            submitted_at,
+            verified_at,
+            verified_by,
+            rejection_note,
+            created_at,
+            updated_at
+        FROM achievement_references
+        WHERE student_id = $1
+        ORDER BY created_at DESC
+    `
+
+	rows, err := r.DB.QueryContext(ctx, query, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+
+	for rows.Next() {
+		var (
+			mongoID       string
+			status        string
+			submittedAt   *time.Time
+			verifiedAt    *time.Time
+			verifiedBy    *int64
+			rejectionNote *string
+			createdAt     time.Time
+			updatedAt     time.Time
+		)
+
+		if err := rows.Scan(
+			&mongoID,
+			&status,
+			&submittedAt,
+			&verifiedAt,
+			&verifiedBy,
+			&rejectionNote,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		row := map[string]interface{}{
+			"mongo_id":       mongoID,
+			"status":         status,
+			"submitted_at":   submittedAt,
+			"verified_at":    verifiedAt,
+			"verified_by":    verifiedBy,
+			"rejection_note": rejectionNote,
+			"created_at":     createdAt,
+			"updated_at":     updatedAt,
+		}
+
+		results = append(results, row)
+	}
+
+	return results, nil
+}
+
