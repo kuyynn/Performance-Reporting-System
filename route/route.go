@@ -2,6 +2,7 @@ package routes
 
 import (
 	"uas/app/service"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -10,6 +11,7 @@ func SetupRoutes(
 	app *fiber.App,
 	userService service.UserService,
 	authService *service.AuthService,
+	achievementService *service.AchievementService,
 	authMiddleware fiber.Handler,
 ) {
 
@@ -35,12 +37,10 @@ func SetupRoutes(
 		return c.JSON(output)
 	})
 
-	// ====== ROUTE PROTECTED (HARUS PAKAI JWT) ======
+	// ROUTE PROTECTED (HARUS PAKAI JWT)
 	api := app.Group("/api", authMiddleware)
 
-
-	// ==== USER CRUD ====
-
+	// USER CRUD
 	api.Post("/users", userService.Create)
 	api.Get("/users", userService.FindAll)
 	api.Get("/users/:id", userService.FindById)
@@ -49,4 +49,24 @@ func SetupRoutes(
 
 	// Logout
 	api.Post("/logout", userService.Logout)
+
+	// ACHIEVEMENT
+	api.Post("/v1/achievements", func(c *fiber.Ctx) error {
+		userID := c.Locals("userID").(int64)
+		role := c.Locals("role").(string)
+		var input service.AchievementInput
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "invalid_request",
+			})
+		}
+		ctx := c.Context()
+		result, err := achievementService.CreateAchievement(ctx, userID, role, input)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(result)
+	})
 }
