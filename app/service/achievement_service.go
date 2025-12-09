@@ -25,9 +25,7 @@ func NewAchievementService(repo *repository.AchievementRepository, mongo *mongo.
 	}
 }
 
-// ---------------------------
 // DTO INPUT
-// ---------------------------
 type AchievementInput struct {
 	AchievementType string                 `json:"achievement_type"`
 	Title           string                 `json:"title"`
@@ -37,9 +35,7 @@ type AchievementInput struct {
 	Points          float64                `json:"points"`
 }
 
-// ---------------------------
 // DTO OUTPUT
-// ---------------------------
 type AchievementOutput struct {
 	MongoID   string                 `json:"mongo_id"`
 	StudentID string                 `json:"student_id"`
@@ -47,16 +43,8 @@ type AchievementOutput struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
-//
-//
-// =========================================
 //              HANDLER (FIBER)
-// =========================================
-//
-
-// =======================
 // CREATE
-// =======================
 func (s *AchievementService) Create(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*utils.Claims)
 
@@ -73,9 +61,7 @@ func (s *AchievementService) Create(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
-// =======================
 // SUBMIT (draft → submitted)
-// =======================
 func (s *AchievementService) Submit(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*utils.Claims)
 	achievementID := c.Params("id")
@@ -92,16 +78,8 @@ func (s *AchievementService) Submit(c *fiber.Ctx) error {
 	})
 }
 
-//
-//
-// =========================================
 //         INTERNAL BUSINESS LOGIC
-// =========================================
-//
-
-// ===============
 // Create Logic
-// ===============
 func (s *AchievementService) CreateAchievement(
 	ctx context.Context,
 	userID int64,
@@ -130,21 +108,16 @@ func (s *AchievementService) CreateAchievement(
 		"createdAt":       time.Now(),
 		"updatedAt":       time.Now(),
 	}
-
 	collection := s.Mongo.Database("uas").Collection("achievements")
-
 	result, err := collection.InsertOne(ctx, doc)
 	if err != nil {
 		return nil, errors.New("failed to save achievement to mongo")
 	}
-
 	objectID := result.InsertedID.(primitive.ObjectID).Hex()
-
 	err = s.Repo.InsertReference(ctx, studentID, objectID)
 	if err != nil {
 		return nil, errors.New("failed to save reference to postgres")
 	}
-
 	return &AchievementOutput{
 		MongoID:   objectID,
 		StudentID: studentID,
@@ -153,36 +126,29 @@ func (s *AchievementService) CreateAchievement(
 	}, nil
 }
 
-// ===============
 // SUBMIT LOGIC
-// ===============
 func (s *AchievementService) SubmitAchievement(
 	ctx context.Context,
 	userID int64,
 	role string,
 	achievementID string,
 ) error {
-
 	if role != "mahasiswa" {
 		return errors.New("only students can submit achievements")
 	}
-
 	studentID, err := s.Repo.GetStudentID(ctx, userID)
 	if err != nil {
 		return errors.New("student profile not found")
 	}
-
 	err = s.Repo.Submit(ctx, achievementID, studentID)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
 func (s *AchievementService) GetMyAchievements(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*utils.Claims)
-
 	ctx := c.Context()
 
 	// 1. Hanya mahasiswa yang boleh melihat prestasinya
@@ -221,14 +187,67 @@ func (s *AchievementService) GetMyAchievements(c *fiber.Ctx) error {
 
 		err := collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
 		if err != nil {
-			continue // skip jika dokumen mongo hilang
+			continue
 		}
-
 		results = append(results, map[string]interface{}{
 			"reference": ref,
 			"mongo":     mongoDoc,
 		})
 	}
-
 	return c.JSON(results)
+}
+
+func (s *AchievementService) GetSupervisedAchievements(c *fiber.Ctx) error {
+
+    claims := c.Locals("claims").(*utils.Claims)
+    ctx := c.Context()
+
+    // 1. Hanya dosen wali yang boleh melihat ini
+    if claims.Role != "dosen wali" {
+        return c.Status(403).JSON(fiber.Map{
+            "error": "only academic advisors can view supervised achievements",
+        })
+    }
+
+    // 2. Ambil lecturer_id berdasarkan user_id
+    advisorID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
+    }
+
+    // 3. Ambil semua mahasiswa bimbingan
+    studentIDs, err := s.Repo.GetStudentsByAdvisor(ctx, advisorID)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+
+    // Jika dosen belum punya mahasiswa bimbingan
+    if len(studentIDs) == 0 {
+        return c.JSON([]interface{}{})
+    }
+
+    // 4. Ambil semua references
+    refs, err := s.Repo.GetReferencesByStudentList(ctx, studentIDs)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+
+    // 5. Ambil dokumen mongo untuk masing-masing prestasi
+    collection := s.Mongo.Database("uas").Collection("achievements")
+
+    var results []map[string]interface{}
+    for _, ref := range refs {
+        mongoID := ref["mongo_id"].(string)
+        var mongoDoc map[string]interface{}
+        objID, _ := primitive.ObjectIDFromHex(mongoID)
+        err := collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
+        if err != nil {
+            continue
+        }
+        results = append(results, map[string]interface{}{
+            "reference": ref,
+            "mongo":     mongoDoc,
+        })
+    }
+    return c.JSON(results)
 }
