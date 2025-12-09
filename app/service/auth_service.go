@@ -5,6 +5,7 @@ import (
 	"uas/app/model"
 	"uas/app/repository"
 	"uas/utils"
+	"github.com/gofiber/fiber/v2"
 )
 
 type AuthService struct {
@@ -69,3 +70,23 @@ func (s *AuthService) Login(input LoginInput) (*LoginOutput, error) {
 		Permissions: perms,
 	}, nil
 }
+
+func (s *AuthService) LoginHandler(c *fiber.Ctx) error {
+    var input LoginInput
+
+    if err := c.BodyParser(&input); err != nil {
+        return c.Status(400).JSON(fiber.Map{
+            "error": "invalid_request",
+        })
+    }
+
+    output, err := s.Login(input)
+    if err != nil {
+        return c.Status(401).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    }
+
+    return c.JSON(output)
+}
+

@@ -179,3 +179,56 @@ func (s *AchievementService) SubmitAchievement(
 
 	return nil
 }
+
+func (s *AchievementService) GetMyAchievements(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+
+	ctx := c.Context()
+
+	// 1. Hanya mahasiswa yang boleh melihat prestasinya
+	if claims.Role != "mahasiswa" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only students can view their achievements",
+		})
+	}
+
+	// 2. Ambil student_id dari PostgreSQL
+	studentID, err := s.Repo.GetStudentID(ctx, claims.UserID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "student profile not found",
+		})
+	}
+
+	// 3. Ambil reference dari PostgreSQL
+	refs, err := s.Repo.GetByStudentID(ctx, studentID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// 4. Gabungkan dengan MongoDB
+	collection := s.Mongo.Database("uas").Collection("achievements")
+
+	var results []map[string]interface{}
+
+	for _, ref := range refs {
+		mongoID := ref["mongo_id"].(string)
+
+		var mongoDoc map[string]interface{}
+		objID, _ := primitive.ObjectIDFromHex(mongoID)
+
+		err := collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
+		if err != nil {
+			continue // skip jika dokumen mongo hilang
+		}
+
+		results = append(results, map[string]interface{}{
+			"reference": ref,
+			"mongo":     mongoDoc,
+		})
+	}
+
+	return c.JSON(results)
+}
