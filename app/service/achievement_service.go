@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"time"
-	
+
 	"uas/app/repository"
+	"uas/utils"
+
+	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AchievementService struct {
-	Repo       *repository.AchievementRepository
-	Mongo      *mongo.Client
+	Repo  *repository.AchievementRepository
+	Mongo *mongo.Client
 }
 
 func NewAchievementService(repo *repository.AchievementRepository, mongo *mongo.Client) *AchievementService {
@@ -22,7 +25,9 @@ func NewAchievementService(repo *repository.AchievementRepository, mongo *mongo.
 	}
 }
 
-// Input dari mahasiswa
+// ---------------------------
+// DTO INPUT
+// ---------------------------
 type AchievementInput struct {
 	AchievementType string                 `json:"achievement_type"`
 	Title           string                 `json:"title"`
@@ -32,7 +37,9 @@ type AchievementInput struct {
 	Points          float64                `json:"points"`
 }
 
-// Output setelah submit
+// ---------------------------
+// DTO OUTPUT
+// ---------------------------
 type AchievementOutput struct {
 	MongoID   string                 `json:"mongo_id"`
 	StudentID string                 `json:"student_id"`
@@ -40,6 +47,61 @@ type AchievementOutput struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
+//
+//
+// =========================================
+//              HANDLER (FIBER)
+// =========================================
+//
+
+// =======================
+// CREATE
+// =======================
+func (s *AchievementService) Create(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+
+	var input AchievementInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid_request"})
+	}
+
+	result, err := s.CreateAchievement(c.Context(), claims.UserID, claims.Role, input)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(result)
+}
+
+// =======================
+// SUBMIT (draft → submitted)
+// =======================
+func (s *AchievementService) Submit(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	achievementID := c.Params("id")
+
+	err := s.SubmitAchievement(c.Context(), claims.UserID, claims.Role, achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"message":        "achievement submitted",
+		"achievement_id": achievementID,
+		"status":         "submitted",
+	})
+}
+
+//
+//
+// =========================================
+//         INTERNAL BUSINESS LOGIC
+// =========================================
+//
+
+// ===============
+// Create Logic
+// ===============
 func (s *AchievementService) CreateAchievement(
 	ctx context.Context,
 	userID int64,
@@ -47,18 +109,16 @@ func (s *AchievementService) CreateAchievement(
 	input AchievementInput,
 ) (*AchievementOutput, error) {
 
-	// 1. Pastikan role adalah mahasiswa
 	if role != "mahasiswa" {
 		return nil, errors.New("only students can create achievements")
 	}
 
-	// 2. Ambil student_id dari PostgreSQL
 	studentID, err := s.Repo.GetStudentID(ctx, userID)
 	if err != nil {
 		return nil, errors.New("student profile not found")
 	}
 
-	// 3. Siapkan dokumen MongoDB
+	// Build Mongo document
 	doc := map[string]interface{}{
 		"studentId":       studentID,
 		"achievementType": input.AchievementType,
@@ -71,7 +131,6 @@ func (s *AchievementService) CreateAchievement(
 		"updatedAt":       time.Now(),
 	}
 
-	// 4. Insert ke MongoDB
 	collection := s.Mongo.Database("uas").Collection("achievements")
 
 	result, err := collection.InsertOne(ctx, doc)
@@ -81,13 +140,11 @@ func (s *AchievementService) CreateAchievement(
 
 	objectID := result.InsertedID.(primitive.ObjectID).Hex()
 
-	// 5. Insert reference ke PostgreSQL
 	err = s.Repo.InsertReference(ctx, studentID, objectID)
 	if err != nil {
 		return nil, errors.New("failed to save reference to postgres")
 	}
 
-	// 6. Response output
 	return &AchievementOutput{
 		MongoID:   objectID,
 		StudentID: studentID,
@@ -96,29 +153,29 @@ func (s *AchievementService) CreateAchievement(
 	}, nil
 }
 
+// ===============
+// SUBMIT LOGIC
+// ===============
 func (s *AchievementService) SubmitAchievement(
-    ctx context.Context,
-    userID int64,
-    role string,
-    achievementID string,
+	ctx context.Context,
+	userID int64,
+	role string,
+	achievementID string,
 ) error {
 
-    // hanya mahasiswa yang boleh submit
-    if role != "mahasiswa" {
-        return errors.New("only students can submit achievements")
-    }
+	if role != "mahasiswa" {
+		return errors.New("only students can submit achievements")
+	}
 
-    // ambil student_id
-    studentID, err := s.Repo.GetStudentID(ctx, userID)
-    if err != nil {
-        return errors.New("student profile not found")
-    }
+	studentID, err := s.Repo.GetStudentID(ctx, userID)
+	if err != nil {
+		return errors.New("student profile not found")
+	}
 
-    // update status di postgres
-    err = s.Repo.Submit(ctx, achievementID, studentID)
-    if err != nil {
-        return err
-    }
+	err = s.Repo.Submit(ctx, achievementID, studentID)
+	if err != nil {
+		return err
+	}
 
-    return nil
+	return nil
 }
