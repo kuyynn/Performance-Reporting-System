@@ -2,6 +2,7 @@ package routes
 
 import (
 	"uas/app/service"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -30,10 +31,11 @@ func SetupRoutes(
 
 	api.Post("/logout", userService.Logout)
 
-	// ACHIEVEMENT (CLEAN ROUTER)
+	// ACHIEVEMENT
 	api.Post("/v1/achievements", achievementService.Create)
 	api.Post("/v1/achievements/:id/submit", achievementService.Submit)
 	api.Get("/v1/achievements/me", achievementService.GetMyAchievements)
 	api.Get("/v1/achievements/supervised", achievementService.GetSupervisedAchievements)
+	api.Post("/v1/achievements/:id/verify", achievementService.Verify)
 
 }
