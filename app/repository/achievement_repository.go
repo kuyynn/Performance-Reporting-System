@@ -231,3 +231,46 @@ func (r *AchievementRepository) GetLecturerID(ctx context.Context, userID int64)
     }
     return lecturerID, nil
 }
+
+// Verifikasi achievement dan update poin mahasiswa
+func (r *AchievementRepository) Verify(
+    ctx context.Context,
+    achievementID string,
+    studentID string,
+    lecturerID int64,
+    points float64,
+) error {
+
+    tx, err := r.DB.BeginTx(ctx, nil)
+    if err != nil {
+        return err
+    }
+
+    // 1. Update status → verified
+    _, err = tx.ExecContext(ctx, `
+        UPDATE achievement_references
+        SET status = 'verified',
+            verified_at = NOW(),
+            verified_by = $1,
+            updated_at = NOW()
+        WHERE mongo_achievement_id = $2
+        AND student_id = $3
+        AND status = 'submitted'
+    `, lecturerID, achievementID, studentID)
+    if err != nil {
+        tx.Rollback()
+        return err
+    }
+
+    // 2. Tambah poin mahasiswa
+    _, err = tx.ExecContext(ctx, `
+        UPDATE students
+        SET points = points + $1
+        WHERE id = $2
+    `, points, studentID)
+    if err != nil {
+        tx.Rollback()
+        return err
+    }
+    return tx.Commit()
+}
