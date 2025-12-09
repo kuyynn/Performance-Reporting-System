@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
 	"github.com/lib/pq"
 )
 
@@ -129,33 +130,33 @@ func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID st
 
 // Ambil semua student_id yang dibimbing dosen tertentu
 func (r *AchievementRepository) GetStudentsByAdvisor(ctx context.Context, advisorID int64) ([]string, error) {
-    query := `
+	query := `
         SELECT id 
         FROM students
         WHERE advisor_id = $1
     `
-    rows, err := r.DB.QueryContext(ctx, query, advisorID)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-    var studentIDs []string
-    for rows.Next() {
-        var sid string
-        if err := rows.Scan(&sid); err != nil {
-            return nil, err
-        }
-        studentIDs = append(studentIDs, sid)
-    }
-    return studentIDs, nil
+	rows, err := r.DB.QueryContext(ctx, query, advisorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var studentIDs []string
+	for rows.Next() {
+		var sid string
+		if err := rows.Scan(&sid); err != nil {
+			return nil, err
+		}
+		studentIDs = append(studentIDs, sid)
+	}
+	return studentIDs, nil
 }
 
 // Ambil semua achievement_references untuk banyak student sekaligus
 func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, studentIDs []string) ([]map[string]interface{}, error) {
-    if len(studentIDs) == 0 {
-        return []map[string]interface{}{}, nil
-    }
-    query := `
+	if len(studentIDs) == 0 {
+		return []map[string]interface{}{}, nil
+	}
+	query := `
         SELECT 
             student_id,
             mongo_achievement_id,
@@ -170,84 +171,84 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
         WHERE student_id = ANY($1)
         ORDER BY created_at DESC
     `
-    rows, err := r.DB.QueryContext(ctx, query, pq.Array(studentIDs))
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-    var results []map[string]interface{}
-    for rows.Next() {
-        var (
-            studentID     string
-            mongoID       string
-            status        string
-            submittedAt   *time.Time
-            verifiedAt    *time.Time
-            verifiedBy    *int64
-            rejectionNote *string
-            createdAt     time.Time
-            updatedAt     time.Time
-        )
-        if err := rows.Scan(
-            &studentID,
-            &mongoID,
-            &status,
-            &submittedAt,
-            &verifiedAt,
-            &verifiedBy,
-            &rejectionNote,
-            &createdAt,
-            &updatedAt,
-        ); err != nil {
-            return nil, err
-        }
-        results = append(results, map[string]interface{}{
-            "student_id":     studentID,
-            "mongo_id":       mongoID,
-            "status":         status,
-            "submitted_at":   submittedAt,
-            "verified_at":    verifiedAt,
-            "verified_by":    verifiedBy,
-            "rejection_note": rejectionNote,
-            "created_at":     createdAt,
-            "updated_at":     updatedAt,
-        })
-    }
-    return results, nil
+	rows, err := r.DB.QueryContext(ctx, query, pq.Array(studentIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var (
+			studentID     string
+			mongoID       string
+			status        string
+			submittedAt   *time.Time
+			verifiedAt    *time.Time
+			verifiedBy    *int64
+			rejectionNote *string
+			createdAt     time.Time
+			updatedAt     time.Time
+		)
+		if err := rows.Scan(
+			&studentID,
+			&mongoID,
+			&status,
+			&submittedAt,
+			&verifiedAt,
+			&verifiedBy,
+			&rejectionNote,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"student_id":     studentID,
+			"mongo_id":       mongoID,
+			"status":         status,
+			"submitted_at":   submittedAt,
+			"verified_at":    verifiedAt,
+			"verified_by":    verifiedBy,
+			"rejection_note": rejectionNote,
+			"created_at":     createdAt,
+			"updated_at":     updatedAt,
+		})
+	}
+	return results, nil
 }
 
 // Ambil lecturer_id berdasarkan user_id dosen
 func (r *AchievementRepository) GetLecturerID(ctx context.Context, userID int64) (int64, error) {
-    query := `
+	query := `
         SELECT id
         FROM lecturers
         WHERE user_id = $1
         LIMIT 1
     `
-    var lecturerID int64
-    err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
-    if err != nil {
-        return 0, err
-    }
-    return lecturerID, nil
+	var lecturerID int64
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
+	if err != nil {
+		return 0, err
+	}
+	return lecturerID, nil
 }
 
 // Verifikasi achievement dan update poin mahasiswa
 func (r *AchievementRepository) Verify(
-    ctx context.Context,
-    achievementID string,
-    studentID string,
-    lecturerID int64,
-    points float64,
+	ctx context.Context,
+	achievementID string,
+	studentID string,
+	lecturerID int64,
+	points float64,
 ) error {
 
-    tx, err := r.DB.BeginTx(ctx, nil)
-    if err != nil {
-        return err
-    }
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
 
-    // 1. Update status → verified
-    _, err = tx.ExecContext(ctx, `
+	// 1. Update status → verified
+	_, err = tx.ExecContext(ctx, `
         UPDATE achievement_references
         SET status = 'verified',
             verified_at = NOW(),
@@ -257,20 +258,43 @@ func (r *AchievementRepository) Verify(
         AND student_id = $3
         AND status = 'submitted'
     `, lecturerID, achievementID, studentID)
-    if err != nil {
-        tx.Rollback()
-        return err
-    }
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
 
-    // 2. Tambah poin mahasiswa
-    _, err = tx.ExecContext(ctx, `
+	// 2. Tambah poin mahasiswa
+	_, err = tx.ExecContext(ctx, `
         UPDATE students
         SET points = points + $1
         WHERE id = $2
     `, points, studentID)
-    if err != nil {
-        tx.Rollback()
-        return err
-    }
-    return tx.Commit()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *AchievementRepository) GetStudentIDByAchievement(ctx context.Context, achievementID string) (string, error) {
+	query := `
+        SELECT student_id
+        FROM achievement_references
+        WHERE mongo_achievement_id = $1
+        LIMIT 1
+    `
+	var studentID string
+	err := r.DB.QueryRowContext(ctx, query, achievementID).Scan(&studentID)
+	return studentID, err
+}
+
+func (r *AchievementRepository) IsStudentSupervised(ctx context.Context, lecturerID int64, studentID string) (bool, error) {
+    query := `
+        SELECT COUNT(*)
+        FROM students
+        WHERE id = $1 AND advisor_id = $2
+    `
+    var count int
+    err := r.DB.QueryRowContext(ctx, query, studentID, lecturerID).Scan(&count)
+    return count > 0, err
 }
