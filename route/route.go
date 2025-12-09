@@ -69,4 +69,26 @@ func SetupRoutes(
 		}
 		return c.JSON(result)
 	})
+
+		// Mahasiswa submit prestasi (draft → submitted)
+	api.Post("/v1/achievements/:id/submit", func(c *fiber.Ctx) error {
+		userID := c.Locals("userID").(int64)
+		role := c.Locals("role").(string)
+
+		achievementID := c.Params("id")
+
+		ctx := c.Context()
+		err := achievementService.SubmitAchievement(ctx, userID, role, achievementID)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		return c.JSON(fiber.Map{
+			"message": "achievement submitted",
+			"achievement_id": achievementID,
+			"status": "submitted",
+		})
+	})
 }
