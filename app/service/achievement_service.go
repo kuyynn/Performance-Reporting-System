@@ -251,3 +251,63 @@ func (s *AchievementService) GetSupervisedAchievements(c *fiber.Ctx) error {
     }
     return c.JSON(results)
 }
+
+func (s *AchievementService) Verify(c *fiber.Ctx) error {
+    claims := c.Locals("claims").(*utils.Claims)
+
+    // 1. Hanya dosen wali
+    if claims.Role != "dosen wali" {
+        return c.Status(403).JSON(fiber.Map{
+            "error": "only advisors can verify achievements",
+        })
+    }
+
+    achievementID := c.Params("id")
+    ctx := c.Context()
+
+    // 2. Ambil lecturer_id
+    lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
+    }
+
+    // 3. Ambil student_id pemilik achievement
+    studentID, err := s.Repo.GetStudentIDByAchievement(ctx, achievementID)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": "achievement not found"})
+    }
+
+    // 4. Cek apakah mahasiswa ini adalah bimbingan dosen
+    ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentID)
+    if err != nil || !ok {
+        return c.Status(403).JSON(fiber.Map{
+            "error": "student not supervised by this lecturer",
+        })
+    }
+
+    // 5. Ambil dokumen Mongo untuk melihat poin
+    collection := s.Mongo.Database("uas").Collection("achievements")
+
+    var mongoDoc map[string]interface{}
+    objID, _ := primitive.ObjectIDFromHex(achievementID)
+
+    err = collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": "mongo document not found"})
+    }
+
+    points, _ := mongoDoc["points"].(float64)
+
+    // 6. Update postgres: verified + tambah poin
+    err = s.Repo.Verify(ctx, achievementID, studentID, lecturerID, points)
+    if err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+
+    return c.JSON(fiber.Map{
+        "achievement_id": achievementID,
+        "status":         "verified",
+        "added_points":   points,
+        "message":        "achievement verified successfully",
+    })
+}
