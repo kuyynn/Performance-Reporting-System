@@ -95,3 +95,30 @@ func (s *AchievementService) CreateAchievement(
 		Data:      doc,
 	}, nil
 }
+
+func (s *AchievementService) SubmitAchievement(
+    ctx context.Context,
+    userID int64,
+    role string,
+    achievementID string,
+) error {
+
+    // hanya mahasiswa yang boleh submit
+    if role != "mahasiswa" {
+        return errors.New("only students can submit achievements")
+    }
+
+    // ambil student_id
+    studentID, err := s.Repo.GetStudentID(ctx, userID)
+    if err != nil {
+        return errors.New("student profile not found")
+    }
+
+    // update status di postgres
+    err = s.Repo.Submit(ctx, achievementID, studentID)
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
