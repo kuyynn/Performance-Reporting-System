@@ -34,8 +34,8 @@ func main() {
 	// init repos & services
 	userRepo := repository.NewUserRepository(db)
 	userService := service.NewUserService(userRepo)
-	authService := service.NewAuthService(userRepo)
-
+	tokenRepo := repository.NewRefreshTokenRepository(db)
+	authService := service.NewAuthService(userRepo, tokenRepo)
 	achRepo := repository.NewAchievementRepository(db)
 	achService := service.NewAchievementService(achRepo, mongoClient)
 
