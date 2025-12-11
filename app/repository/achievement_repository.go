@@ -69,63 +69,34 @@ func (r *AchievementRepository) Submit(ctx context.Context, achievementID string
 }
 
 // Ambil semua achievement milik student (di PostgreSQL)
-func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID string) ([]map[string]interface{}, error) {
+func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID string, includeDeleted bool) ([]map[string]interface{}, error) {
 	query := `
-        SELECT 
-            mongo_achievement_id,
-            status,
-            submitted_at,
-            verified_at,
-            verified_by,
-            rejection_note,
-            created_at,
-            updated_at
+        SELECT mongo_achievement_id, status, submitted_at, verified_at, rejection_note
         FROM achievement_references
         WHERE student_id = $1
-        ORDER BY created_at DESC
+        AND ($2 OR is_deleted = false);
     `
-	rows, err := r.DB.QueryContext(ctx, query, studentID)
+	rows, err := r.DB.QueryContext(ctx, query, studentID, includeDeleted)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var results []map[string]interface{}
+	var result []map[string]interface{}
 	for rows.Next() {
-		var (
-			mongoID       string
-			status        string
-			submittedAt   *time.Time
-			verifiedAt    *time.Time
-			verifiedBy    *int64
-			rejectionNote *string
-			createdAt     time.Time
-			updatedAt     time.Time
-		)
-		if err := rows.Scan(
-			&mongoID,
-			&status,
-			&submittedAt,
-			&verifiedAt,
-			&verifiedBy,
-			&rejectionNote,
-			&createdAt,
-			&updatedAt,
-		); err != nil {
+		var mongoID, status string
+		var submittedAt, verifiedAt, rejectionNote sql.NullString
+		if err := rows.Scan(&mongoID, &status, &submittedAt, &verifiedAt, &rejectionNote); err != nil {
 			return nil, err
 		}
-		row := map[string]interface{}{
+		result = append(result, map[string]interface{}{
 			"mongo_id":       mongoID,
 			"status":         status,
-			"submitted_at":   submittedAt,
-			"verified_at":    verifiedAt,
-			"verified_by":    verifiedBy,
-			"rejection_note": rejectionNote,
-			"created_at":     createdAt,
-			"updated_at":     updatedAt,
-		}
-		results = append(results, row)
+			"submitted_at":   submittedAt.String,
+			"verified_at":    verifiedAt.String,
+			"rejection_note": rejectionNote.String,
+		})
 	}
-	return results, nil
+	return result, nil
 }
 
 // Ambil semua student_id yang dibimbing dosen tertentu
@@ -324,20 +295,15 @@ func (r *AchievementRepository) Reject(
 // Soft delete: update status menjadi deleted
 func (r *AchievementRepository) SoftDelete(ctx context.Context, achievementID string, userID int64) error {
 	query := `
-		UPDATE achievement_references
-		SET status='deleted', updated_at=NOW()
-		WHERE mongo_achievement_id = $1 AND student_id = (
-			SELECT id FROM students WHERE user_id=$2
-		)
-		AND status='draft'
-	`
-	res, err := r.DB.ExecContext(ctx, query, achievementID, userID)
-	if err != nil {
-		return err
-	}
-	count, _ := res.RowsAffected()
-	if count == 0 {
-		return errors.New("cannot_delete: not draft or not owner")
-	}
-	return nil
+        UPDATE achievement_references
+        SET is_deleted = true, updated_at = NOW()
+        WHERE mongo_achievement_id = $1
+        AND student_id = (
+            SELECT id FROM students WHERE user_id = $2
+        )
+        AND status = 'draft';
+    `
+	_, err := r.DB.ExecContext(ctx, query, achievementID, userID)
+	return err
 }
+
