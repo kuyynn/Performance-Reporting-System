@@ -38,10 +38,6 @@ type UserUpdateRequest struct {
 	FullName string `json:"full_name"`
 }
 
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" validate:"required"`
-}
-
 type LoginResponse struct {
 	Token        string       `json:"token"`
 	RefreshToken string       `json:"refresh_token"`
