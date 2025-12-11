@@ -219,18 +219,18 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
 
 // Ambil lecturer_id berdasarkan user_id dosen
 func (r *AchievementRepository) GetLecturerID(ctx context.Context, userID int64) (int64, error) {
-	query := `
+    query := `
         SELECT id
         FROM lecturers
         WHERE user_id = $1
         LIMIT 1
     `
-	var lecturerID int64
-	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
-	if err != nil {
-		return 0, err
-	}
-	return lecturerID, nil
+    var lecturerID int64
+    err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
+    if err != nil {
+        return 0, err
+    }
+    return lecturerID, nil
 }
 
 // Verifikasi achievement dan update poin mahasiswa
@@ -289,12 +289,55 @@ func (r *AchievementRepository) GetStudentIDByAchievement(ctx context.Context, a
 }
 
 func (r *AchievementRepository) IsStudentSupervised(ctx context.Context, lecturerID int64, studentID string) (bool, error) {
-    query := `
+	query := `
         SELECT COUNT(*)
         FROM students
         WHERE id = $1 AND advisor_id = $2
     `
-    var count int
-    err := r.DB.QueryRowContext(ctx, query, studentID, lecturerID).Scan(&count)
-    return count > 0, err
+	var count int
+	err := r.DB.QueryRowContext(ctx, query, studentID, lecturerID).Scan(&count)
+	return count > 0, err
+}
+
+// Reject achievement
+func (r *AchievementRepository) Reject(
+	ctx context.Context,
+	achievementID string,
+	studentID string,
+	lecturerID int64,
+	note string,
+) error {
+	query := `
+        UPDATE achievement_references
+        SET status = 'rejected',
+            rejection_note = $1,
+            verified_by = $2, 
+            updated_at = NOW()
+        WHERE mongo_achievement_id = $3
+          AND student_id = $4
+          AND status = 'submitted'
+    `
+	_, err := r.DB.ExecContext(ctx, query, note, lecturerID, achievementID, studentID)
+	return err
+}
+
+// Soft delete: update status menjadi deleted
+func (r *AchievementRepository) SoftDelete(ctx context.Context, achievementID string, userID int64) error {
+	query := `
+		UPDATE achievement_references
+		SET status='deleted', updated_at=NOW()
+		WHERE mongo_achievement_id = $1 AND student_id = (
+			SELECT id FROM students WHERE user_id=$2
+		)
+		AND status='draft'
+	`
+	res, err := r.DB.ExecContext(ctx, query, achievementID, userID)
+	if err != nil {
+		return err
+	}
+	count, _ := res.RowsAffected()
+	if count == 0 {
+		return errors.New("cannot_delete: not draft or not owner")
+	}
+	return nil
 }

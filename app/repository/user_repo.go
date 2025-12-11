@@ -99,9 +99,10 @@ func (r *UserRepositoryImpl) FindById(ctx context.Context, id int64) (*model.Use
 // LOGIN FIND
 func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error) {
     sqlQuery := `
-        SELECT u.id, u.username, u.full_name, u.email,
-               u.password_hash, u.role_id, u.is_active,
-               r.name AS role_name
+        SELECT 
+            u.id, u.username, u.full_name, u.email,
+            u.password_hash, u.role_id, u.is_active,
+            r.name AS role_name
         FROM users u
         JOIN roles r ON r.id = u.role_id
         WHERE u.username=$1 OR u.email=$1
@@ -116,7 +117,7 @@ func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*mod
         &u.PasswordHash,
         &u.RoleID,
         &u.IsActive,
-        &u.Role, // ← SEKARANG INI VALID
+        &u.Role,    // ← inilah field Role yang benar!
     ); err != nil {
         return nil, err
     }
