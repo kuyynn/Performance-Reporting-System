@@ -35,11 +35,12 @@ func SetupRoutes(
 	api.Delete("/users/:id", userService.Delete)
 
 	// ACHIEVEMENTS
-	api.Post("/v1/achievements", achievementService.Create)
-	api.Post("/v1/achievements/:id/submit", achievementService.Submit)
-	api.Delete("/v1/achievements/:id", achievementService.DeleteHandler)
-	api.Get("/v1/achievements/me", achievementService.GetMyAchievements)
-	api.Get("/v1/achievements/supervised", achievementService.GetSupervisedAchievements)
-	api.Post("/v1/achievements/:id/verify", achievementService.Verify)
-	api.Post("/v1/achievements/:id/reject", achievementService.Reject)
+	api.Post("/achievements", achievementService.CreateHandler)
+	api.Post("/achievements/:id/submit", achievementService.Submit)
+	api.Delete("/achievements/:id", achievementService.DeleteHandler)
+	api.Get("/achievements/me", achievementService.GetMyAchievements)
+	api.Get("/achievements/supervised", achievementService.GetSupervisedAchievements)
+	api.Post("/achievements/:id/verify", achievementService.Verify)
+	api.Post("/achievements/:id/reject", achievementService.Reject)
+
 }
