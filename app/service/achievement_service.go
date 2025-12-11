@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"fmt"
 
 	"uas/app/repository"
 	"uas/utils"
@@ -11,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 type AchievementService struct {
@@ -43,7 +45,8 @@ type AchievementOutput struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
-//              HANDLER (FIBER)
+//	HANDLER (FIBER)
+//
 // CREATE
 func (s *AchievementService) Create(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*utils.Claims)
@@ -78,7 +81,8 @@ func (s *AchievementService) Submit(c *fiber.Ctx) error {
 	})
 }
 
-//         INTERNAL BUSINESS LOGIC
+//	INTERNAL BUSINESS LOGIC
+//
 // Create Logic
 func (s *AchievementService) CreateAchievement(
 	ctx context.Context,
@@ -199,115 +203,216 @@ func (s *AchievementService) GetMyAchievements(c *fiber.Ctx) error {
 
 func (s *AchievementService) GetSupervisedAchievements(c *fiber.Ctx) error {
 
-    claims := c.Locals("claims").(*utils.Claims)
-    ctx := c.Context()
+	claims := c.Locals("claims").(*utils.Claims)
+	ctx := c.Context()
 
-    // 1. Hanya dosen wali yang boleh melihat ini
-    if claims.Role != "dosen wali" {
-        return c.Status(403).JSON(fiber.Map{
-            "error": "only academic advisors can view supervised achievements",
-        })
-    }
+	// 1. Hanya dosen wali yang boleh melihat ini
+	if claims.Role != "dosen wali" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only academic advisors can view supervised achievements",
+		})
+	}
 
-    // 2. Ambil lecturer_id berdasarkan user_id
-    advisorID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
-    }
+	// 2. Ambil lecturer_id berdasarkan user_id
+	advisorID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
+	}
 
-    // 3. Ambil semua mahasiswa bimbingan
-    studentIDs, err := s.Repo.GetStudentsByAdvisor(ctx, advisorID)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-    }
+	// 3. Ambil semua mahasiswa bimbingan
+	studentIDs, err := s.Repo.GetStudentsByAdvisor(ctx, advisorID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
 
-    // Jika dosen belum punya mahasiswa bimbingan
-    if len(studentIDs) == 0 {
-        return c.JSON([]interface{}{})
-    }
+	// Jika dosen belum punya mahasiswa bimbingan
+	if len(studentIDs) == 0 {
+		return c.JSON([]interface{}{})
+	}
 
-    // 4. Ambil semua references
-    refs, err := s.Repo.GetReferencesByStudentList(ctx, studentIDs)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-    }
+	// 4. Ambil semua references
+	refs, err := s.Repo.GetReferencesByStudentList(ctx, studentIDs)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
 
-    // 5. Ambil dokumen mongo untuk masing-masing prestasi
-    collection := s.Mongo.Database("uas").Collection("achievements")
+	// 5. Ambil dokumen mongo untuk masing-masing prestasi
+	collection := s.Mongo.Database("uas").Collection("achievements")
 
-    var results []map[string]interface{}
-    for _, ref := range refs {
-        mongoID := ref["mongo_id"].(string)
-        var mongoDoc map[string]interface{}
-        objID, _ := primitive.ObjectIDFromHex(mongoID)
-        err := collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
-        if err != nil {
-            continue
-        }
-        results = append(results, map[string]interface{}{
-            "reference": ref,
-            "mongo":     mongoDoc,
-        })
-    }
-    return c.JSON(results)
+	var results []map[string]interface{}
+	for _, ref := range refs {
+		mongoID := ref["mongo_id"].(string)
+		var mongoDoc map[string]interface{}
+		objID, _ := primitive.ObjectIDFromHex(mongoID)
+		err := collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
+		if err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"reference": ref,
+			"mongo":     mongoDoc,
+		})
+	}
+	return c.JSON(results)
 }
 
 func (s *AchievementService) Verify(c *fiber.Ctx) error {
-    claims := c.Locals("claims").(*utils.Claims)
+	claims := c.Locals("claims").(*utils.Claims)
 
-    // 1. Hanya dosen wali
-    if claims.Role != "dosen wali" {
-        return c.Status(403).JSON(fiber.Map{
-            "error": "only advisors can verify achievements",
-        })
-    }
+	// 1. Hanya dosen wali
+	if claims.Role != "dosen wali" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only advisors can verify achievements",
+		})
+	}
 
-    achievementID := c.Params("id")
-    ctx := c.Context()
+	achievementID := c.Params("id")
+	ctx := c.Context()
 
-    // 2. Ambil lecturer_id
-    lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
-    }
+	// 2. Ambil lecturer_id
+	lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
+	}
 
-    // 3. Ambil student_id pemilik achievement
-    studentID, err := s.Repo.GetStudentIDByAchievement(ctx, achievementID)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "achievement not found"})
-    }
+	// 3. Ambil student_id pemilik achievement
+	studentID, err := s.Repo.GetStudentIDByAchievement(ctx, achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "achievement not found"})
+	}
 
-    // 4. Cek apakah mahasiswa ini adalah bimbingan dosen
-    ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentID)
-    if err != nil || !ok {
-        return c.Status(403).JSON(fiber.Map{
-            "error": "student not supervised by this lecturer",
-        })
-    }
+	// 4. Cek apakah mahasiswa ini adalah bimbingan dosen
+	ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentID)
+	if err != nil || !ok {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "student not supervised by this lecturer",
+		})
+	}
 
-    // 5. Ambil dokumen Mongo untuk melihat poin
-    collection := s.Mongo.Database("uas").Collection("achievements")
+	// 5. Ambil dokumen Mongo untuk melihat poin
+	collection := s.Mongo.Database("uas").Collection("achievements")
 
-    var mongoDoc map[string]interface{}
-    objID, _ := primitive.ObjectIDFromHex(achievementID)
+	var mongoDoc map[string]interface{}
+	objID, _ := primitive.ObjectIDFromHex(achievementID)
 
-    err = collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": "mongo document not found"})
-    }
+	err = collection.FindOne(ctx, primitive.M{"_id": objID}).Decode(&mongoDoc)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "mongo document not found"})
+	}
 
-    points, _ := mongoDoc["points"].(float64)
+	points, _ := mongoDoc["points"].(float64)
 
-    // 6. Update postgres: verified + tambah poin
-    err = s.Repo.Verify(ctx, achievementID, studentID, lecturerID, points)
-    if err != nil {
-        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-    }
+	// 6. Update postgres: verified + tambah poin
+	err = s.Repo.Verify(ctx, achievementID, studentID, lecturerID, points)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
 
-    return c.JSON(fiber.Map{
-        "achievement_id": achievementID,
-        "status":         "verified",
-        "added_points":   points,
-        "message":        "achievement verified successfully",
-    })
+	return c.JSON(fiber.Map{
+		"achievement_id": achievementID,
+		"status":         "verified",
+		"added_points":   points,
+		"message":        "achievement verified successfully",
+	})
 }
+
+type RejectInput struct {
+	Note string `json:"note"`
+}
+
+func (s *AchievementService) Reject(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+
+	// 1. Harus dosen wali
+	if claims.Role != "dosen wali" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only advisors can reject achievements",
+		})
+	}
+
+	achievementID := c.Params("id")
+	ctx := c.Context()
+
+	// 2. Body Parser
+	var input RejectInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid_request"})
+	}
+
+	if input.Note == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "rejection note is required"})
+	}
+
+	// 3. Ambil lecturer_id
+	lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+	fmt.Println("DEBUG: claims.UserID =", claims.UserID, " -> lecturerID =", lecturerID, " err =", err)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "lecturer profile not found"})
+	}
+
+	// 4. Ambil student_id pemilik achievement
+	studentID, err := s.Repo.GetStudentIDByAchievement(ctx, achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "achievement not found"})
+	}
+
+	// 5. Cek apakah mahasiswa bimbingannya
+	ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentID)
+	if err != nil || !ok {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "student not supervised by this lecturer",
+		})
+	}
+
+	// 6. Jalankan reject (Postgres)
+	err = s.Repo.Reject(ctx, achievementID, studentID, lecturerID, input.Note)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"achievement_id": achievementID,
+		"status":         "rejected",
+		"note":           input.Note,
+		"message":        "achievement rejected",
+	})
+}
+
+func (s *AchievementService) Delete(ctx context.Context, userID int64, role string, achievementID string) error {
+    // hanya mahasiswa yang boleh hapus
+    if role != "mahasiswa" {
+        return errors.New("only mahasiswa can delete")
+    }
+
+    // 1. Soft delete MongoDB
+	collection := s.Mongo.Database("uas").Collection("achievements")
+	filter := bson.M{"_id": achievementID}
+	update := bson.M{"$set": bson.M{"deletedAt": time.Now()}}
+	_, err := collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return errors.New("failed_soft_delete_mongo")
+	}
+
+    // 2. Update PostgreSQL references
+    err = s.Repo.SoftDelete(ctx, achievementID, userID)
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func (s *AchievementService) DeleteHandler(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	userID := claims.UserID
+	role := claims.Role
+	achievementID := c.Params("id")
+	err := s.Delete(c.Context(), userID, role, achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{
+		"message": "achievement deleted",
+		"id":      achievementID,
+	})
+}
+
