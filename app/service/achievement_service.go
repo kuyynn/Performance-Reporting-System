@@ -3,16 +3,16 @@ package service
 import (
 	"context"
 	"errors"
-	"time"
 	"fmt"
+	"time"
 
 	"uas/app/repository"
 	"uas/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 type AchievementService struct {
@@ -55,12 +55,29 @@ func (s *AchievementService) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid_request"})
 	}
-
 	result, err := s.CreateAchievement(c.Context(), claims.UserID, claims.Role, input)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
+	return c.JSON(result)
+}
 
+func (s *AchievementService) CreateHandler(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	userID := claims.UserID
+	role := claims.Role
+	var input AchievementInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_request",
+		})
+	}
+	result, err := s.CreateAchievement(c.Context(), userID, role, input)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
 	return c.JSON(result)
 }
 
@@ -171,7 +188,7 @@ func (s *AchievementService) GetMyAchievements(c *fiber.Ctx) error {
 	}
 
 	// 3. Ambil reference dari PostgreSQL
-	refs, err := s.Repo.GetByStudentID(ctx, studentID)
+	refs, err := s.Repo.GetByStudentID(ctx, studentID, false)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
@@ -379,26 +396,34 @@ func (s *AchievementService) Reject(c *fiber.Ctx) error {
 }
 
 func (s *AchievementService) Delete(ctx context.Context, userID int64, role string, achievementID string) error {
-    // hanya mahasiswa yang boleh hapus
-    if role != "mahasiswa" {
-        return errors.New("only mahasiswa can delete")
-    }
 
-    // 1. Soft delete MongoDB
+	if role != "mahasiswa" {
+		return errors.New("only mahasiswa can delete")
+	}
+
+	// 1. Soft delete MongoDB (tambahkan deletedAt)
 	collection := s.Mongo.Database("uas").Collection("achievements")
-	filter := bson.M{"_id": achievementID}
+
+	objID, err := primitive.ObjectIDFromHex(achievementID)
+	if err != nil {
+		return errors.New("invalid_mongo_id")
+	}
+
+	filter := bson.M{"_id": objID}
 	update := bson.M{"$set": bson.M{"deletedAt": time.Now()}}
-	_, err := collection.UpdateOne(ctx, filter, update)
+
+	_, err = collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return errors.New("failed_soft_delete_mongo")
 	}
 
-    // 2. Update PostgreSQL references
-    err = s.Repo.SoftDelete(ctx, achievementID, userID)
-    if err != nil {
-        return err
-    }
-    return nil
+	// 2. Soft delete reference PostgreSQL
+	err = s.Repo.SoftDelete(ctx, achievementID, userID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *AchievementService) DeleteHandler(c *fiber.Ctx) error {
@@ -406,13 +431,14 @@ func (s *AchievementService) DeleteHandler(c *fiber.Ctx) error {
 	userID := claims.UserID
 	role := claims.Role
 	achievementID := c.Params("id")
+
 	err := s.Delete(c.Context(), userID, role, achievementID)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
+
 	return c.JSON(fiber.Map{
 		"message": "achievement deleted",
 		"id":      achievementID,
 	})
 }
-
