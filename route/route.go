@@ -2,6 +2,7 @@ package routes
 
 import (
 	"uas/app/service"
+	"uas/middleware"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -11,6 +12,7 @@ func SetupRoutes(
 	userService service.UserService,
 	authService *service.AuthService,
 	achievementService *service.AchievementService,
+	adminService *service.AdminService,
 	authMiddleware fiber.Handler,
 ) {
 
@@ -27,12 +29,17 @@ func SetupRoutes(
 	api.Get("/auth/profile", authService.ProfileHandler)
 	api.Post("/auth/logout", authService.LogoutHandler)
 
+	// ADMIN PROTECTED
+	admin := api.Group("/admin", middleware.AdminOnly)
+
 	// USER CRUD
-	api.Post("/users", userService.Create)
-	api.Get("/users", userService.FindAll)
-	api.Get("/users/:id", userService.FindById)
-	api.Put("/users/:id", userService.Update)
-	api.Delete("/users/:id", userService.Delete)
+	admin.Post("/users", adminService.CreateUser)
+	admin.Put("/users/:id", adminService.UpdateUser)
+	admin.Delete("/users/:id", adminService.DeleteUser)
+	admin.Get("/users", adminService.GetAllUsers)
+
+	// ADMIN — VIEW ALL ACHIEVEMENTS
+	admin.Get("/achievements", achievementService.AdminListAchievements)
 
 	// ACHIEVEMENTS
 	api.Post("/achievements", achievementService.CreateHandler)
