@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strconv"
+	"strings"
 
 	"uas/app/repository"
 	"uas/utils"
@@ -441,4 +443,87 @@ func (s *AchievementService) DeleteHandler(c *fiber.Ctx) error {
 		"message": "achievement deleted",
 		"id":      achievementID,
 	})
+}
+
+// ADMIN: VIEW ALL ACHIEVEMENTS WITH FILTERING & PAGINATION
+func (s *AchievementService) AdminListAchievements(c *fiber.Ctx) error {
+    ctx := c.Context()
+
+    // --- Ambil query params ---
+    status := c.Query("status")
+    studentID := c.Query("student_id") 
+    sort := c.Query("sort")
+    if sort == "" {
+        sort = "created_at"
+    }
+    order := c.Query("order")
+    if order == "" {
+        order = "desc"
+    }
+
+    // Pagination
+    page := 1
+    limit := 10
+    if pStr := c.Query("page"); pStr != "" {
+        if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+            page = p
+        }
+    }
+    if lStr := c.Query("limit"); lStr != "" {
+        if l, err := strconv.Atoi(lStr); err == nil && l > 0 && l <= 100 {
+            limit = l
+        }
+    }
+    offset := (page - 1) * limit
+
+    // --- Panggil repository ---
+    filter := repository.AchievementAdminFilter{
+        Status:    status,
+        StudentID: studentID,
+        Sort:      sort,
+        Order:     strings.ToLower(order),
+        Limit:     limit,
+        Offset:    offset,
+    }
+    refs, total, err := s.Repo.AdminGetAll(ctx, filter)
+    if err != nil {
+        return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+    }
+
+    // --- Join dengan MongoDB ---
+    collection := s.Mongo.Database("uas").Collection("achievements")
+    var results []map[string]interface{}
+    for _, ref := range refs {
+        mongoID, ok := ref["mongo_id"].(string)
+        if !ok || mongoID == "" {
+            continue
+        }
+        objID, err := primitive.ObjectIDFromHex(mongoID)
+        if err != nil {
+            continue
+        }
+        var mongoDoc map[string]interface{}
+        if err := collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&mongoDoc); err != nil {
+            continue
+        }
+        results = append(results, map[string]interface{}{
+            "reference": ref,
+            "mongo":     mongoDoc,
+        })
+    }
+
+    // --- Pagination meta ---
+    totalPages := 0
+    if limit > 0 {
+        totalPages = int((total + int64(limit) - 1) / int64(limit))
+    }
+    return c.JSON(fiber.Map{
+        "data": results,
+        "meta": fiber.Map{
+            "page":        page,
+            "limit":       limit,
+            "total":       total,
+            "total_pages": totalPages,
+        },
+    })
 }
