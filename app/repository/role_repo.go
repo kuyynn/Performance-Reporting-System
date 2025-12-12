@@ -1,26 +1,26 @@
 package repository
 
 import (
-	"uas/app/model"
-	"gorm.io/gorm"
+	"context"
+	"database/sql"
+	"errors"
 )
 
-type RoleRepository interface {
-	FindAll() ([]model.Role, error)
+type RoleRepository struct {
+	DB *sql.DB
 }
 
-type roleRepository struct {
-	db *gorm.DB
+func NewRoleRepository(db *sql.DB) *RoleRepository {
+	return &RoleRepository{DB: db}
 }
 
-func NewRoleRepository(db *gorm.DB) RoleRepository {
-	return &roleRepository{db: db}
-}
+func (r *RoleRepository) GetRoleIDByName(ctx context.Context, name string) (string, error) {
+	query := `SELECT id FROM roles WHERE name=$1`
 
-func (r *roleRepository) FindAll() ([]model.Role, error) {
-	var roles []model.Role
-	if err := r.db.Order("created_at ASC").Find(&roles).Error; err != nil {
-		return nil, err
+	var id string
+	err := r.DB.QueryRowContext(ctx, query, name).Scan(&id)
+	if err != nil {
+		return "", errors.New("role_not_found")
 	}
-	return roles, nil
+	return id, nil
 }

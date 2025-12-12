@@ -5,12 +5,23 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+	"fmt"
+	"strings"
 
 	"github.com/lib/pq"
 )
 
 type AchievementRepository struct {
 	DB *sql.DB
+}
+
+type AchievementAdminFilter struct {
+    Status    string
+    StudentID string
+    Sort      string
+    Order     string
+    Limit     int
+    Offset    int
 }
 
 func NewAchievementRepository(db *sql.DB) *AchievementRepository {
@@ -97,6 +108,139 @@ func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID st
 		})
 	}
 	return result, nil
+}
+
+func (r *AchievementRepository) AdminGetAll(
+    ctx context.Context,
+    f AchievementAdminFilter,
+) ([]map[string]interface{}, int64, error) {
+    base := `
+        SELECT 
+            id,
+            student_id,
+            mongo_achievement_id,
+            status,
+            submitted_at,
+            verified_at,
+            verified_by,
+            rejection_note,
+            created_at,
+            updated_at
+        FROM achievement_references
+        WHERE is_deleted = FALSE
+    `
+    args := []interface{}{}
+    idx := 1
+
+    // Filter status
+    if f.Status != "" {
+        base += fmt.Sprintf(" AND status = $%d", idx)
+        args = append(args, f.Status)
+        idx++
+    }
+
+    // Filter student_id
+    if f.StudentID != "" {
+        base += fmt.Sprintf(" AND student_id = $%d", idx)
+        args = append(args, f.StudentID)
+        idx++
+    }
+
+    // ----- Hitung total (untuk pagination) -----
+    countQuery := "SELECT COUNT(*) FROM (" + base + ") AS sub"
+    var total int64
+    if err := r.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+        return nil, 0, err
+    }
+
+    // ----- Sorting -----
+    sortCol := "created_at"
+    switch f.Sort {
+    case "created_at", "submitted_at", "verified_at", "status":
+        sortCol = f.Sort
+    }
+    orderDir := "DESC"
+    if strings.ToLower(f.Order) == "asc" {
+        orderDir = "ASC"
+    }
+    base += " ORDER BY " + sortCol + " " + orderDir
+
+    // ----- Pagination (LIMIT / OFFSET) -----
+    if f.Limit > 0 {
+        base += fmt.Sprintf(" LIMIT $%d", idx)
+        args = append(args, f.Limit)
+        idx++
+    }
+    if f.Offset > 0 {
+        base += fmt.Sprintf(" OFFSET $%d", idx)
+        args = append(args, f.Offset)
+        idx++
+    }
+
+    // ----- Eksekusi query utama -----
+    rows, err := r.DB.QueryContext(ctx, base, args...)
+    if err != nil {
+        return nil, 0, err
+    }
+    defer rows.Close()
+    var results []map[string]interface{}
+    for rows.Next() {
+        var (
+            id            string
+            studentID     string
+            mongoID       string
+            status        string
+            submittedAt   sql.NullTime
+            verifiedAt    sql.NullTime
+            verifiedBy    sql.NullInt64
+            rejectionNote sql.NullString
+            createdAt     time.Time
+            updatedAt     time.Time
+        )
+        if err := rows.Scan(
+            &id,
+            &studentID,
+            &mongoID,
+            &status,
+            &submittedAt,
+            &verifiedAt,
+            &verifiedBy,
+            &rejectionNote,
+            &createdAt,
+            &updatedAt,
+        ); err != nil {
+            return nil, 0, err
+        }
+        row := map[string]interface{}{
+            "id":             id,
+            "student_id":     studentID,
+            "mongo_id":       mongoID,
+            "status":         status,
+            "submitted_at":   nil,
+            "verified_at":    nil,
+            "verified_by":    nil,
+            "rejection_note": nil,
+            "created_at":     createdAt,
+            "updated_at":     updatedAt,
+        }
+        if submittedAt.Valid {
+            row["submitted_at"] = submittedAt.Time
+        }
+        if verifiedAt.Valid {
+            row["verified_at"] = verifiedAt.Time
+        }
+        if verifiedBy.Valid {
+            row["verified_by"] = verifiedBy.Int64
+        }
+        if rejectionNote.Valid {
+            row["rejection_note"] = rejectionNote.String
+        }
+        results = append(results, row)
+    }
+    if err := rows.Err(); err != nil {
+        return nil, 0, err
+    }
+    return results, total, nil
 }
 
 // Ambil semua student_id yang dibimbing dosen tertentu

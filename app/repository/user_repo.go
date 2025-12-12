@@ -8,8 +8,11 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, user model.UserCreateRequest) (int64, error)
+	CreateRaw(ctx context.Context, username, fullName, email, passHash, roleID string) (int64, error)
 	Update(ctx context.Context, user model.UserUpdateRequest) error
+	UpdateRaw(ctx context.Context, id int64, username, fullName, email, roleID string) error
 	Delete(ctx context.Context, userID int64) error
+	GetRoleIDByName(roleName string) (string, error)
 	FindById(ctx context.Context, userID int64) (*model.UserResponse, error)
 	FindAll(ctx context.Context) (*[]model.UserResponse, error)
 	FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error)
@@ -25,12 +28,19 @@ func NewUserRepository(db *sql.DB) UserRepository {
 	return &UserRepositoryImpl{DB: db}
 }
 
+// GET ROLE ID BY NAME
+func (r *UserRepositoryImpl) GetRoleIDByName(name string) (string, error) {
+	query := `SELECT id FROM roles WHERE name = $1`
+	var id string
+	err := r.DB.QueryRow(query, name).Scan(&id)
+	return id, err
+}
+
 // CREATE USER (POSTGRESQL)
 func (r *UserRepositoryImpl) Create(ctx context.Context, user model.UserCreateRequest) (int64, error) {
 	sqlQuery := `INSERT INTO users(username, full_name, email, password_hash, role_id)
 		         VALUES ($1, $2, $3, $4, $5)
 				 RETURNING id`
-
 	var id int64
 	err := r.DB.QueryRowContext(ctx, sqlQuery,
 		user.Username,
@@ -39,7 +49,6 @@ func (r *UserRepositoryImpl) Create(ctx context.Context, user model.UserCreateRe
 		user.Password,
 		"default",
 	).Scan(&id)
-
 	return id, err
 }
 
@@ -98,7 +107,7 @@ func (r *UserRepositoryImpl) FindById(ctx context.Context, id int64) (*model.Use
 
 // LOGIN FIND
 func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error) {
-    sqlQuery := `
+	sqlQuery := `
         SELECT 
             u.id, u.username, u.full_name, u.email,
             u.password_hash, u.role_id, u.is_active,
@@ -107,21 +116,21 @@ func (r *UserRepositoryImpl) FindByUsernameOrEmail(usernameOrEmail string) (*mod
         JOIN roles r ON r.id = u.role_id
         WHERE u.username=$1 OR u.email=$1
     `
-    row := r.DB.QueryRow(sqlQuery, usernameOrEmail)
-    var u model.User
-    if err := row.Scan(
-        &u.ID,
-        &u.Username,
-        &u.FullName,
-        &u.Email,
-        &u.PasswordHash,
-        &u.RoleID,
-        &u.IsActive,
-        &u.Role,    // ← inilah field Role yang benar!
-    ); err != nil {
-        return nil, err
-    }
-    return &u, nil
+	row := r.DB.QueryRow(sqlQuery, usernameOrEmail)
+	var u model.User
+	if err := row.Scan(
+		&u.ID,
+		&u.Username,
+		&u.FullName,
+		&u.Email,
+		&u.PasswordHash,
+		&u.RoleID,
+		&u.IsActive,
+		&u.Role, // ← inilah field Role yang benar!
+	); err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 // PERMISSIONS
@@ -152,3 +161,42 @@ func (r *UserRepositoryImpl) GetPermissionsByUserID(userID int64) ([]string, err
 }
 
 func (r *UserRepositoryImpl) Logout() {}
+
+// CREATE RAW USER (for AdminService)
+func (r *UserRepositoryImpl) CreateRaw(ctx context.Context, username, fullName, email, passHash, roleID string) (int64, error) {
+	query := `
+		INSERT INTO users(username, full_name, email, password_hash, role_id, is_active)
+		VALUES ($1,$2,$3,$4,$5,TRUE)
+		RETURNING id
+	`
+	var id int64
+	err := r.DB.QueryRowContext(ctx, query,
+		username, fullName, email, passHash, roleID,
+	).Scan(&id)
+	return id, err
+}
+
+// UPDATE RAW USER (Admin can update username, fullname, email, role)
+func (r *UserRepositoryImpl) UpdateRaw(
+    ctx context.Context,
+    id int64,
+    username, fullName, email, roleID string,
+) error {
+    query := `
+        UPDATE users
+        SET username=$1,
+            full_name=$2,
+            email=$3,
+            role_id=$4,
+            updated_at = NOW()
+        WHERE id=$5
+    `
+    _, err := r.DB.ExecContext(ctx, query,
+        username,
+        fullName,
+        email,
+        roleID,
+        id,
+    )
+    return err
+}
