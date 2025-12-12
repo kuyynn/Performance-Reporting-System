@@ -12,3 +12,11 @@ type Student struct {
 	AdvisorID    string    `gorm:"type:uuid" json:"advisor_id"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+type StudentCreate struct {
+    UserID        int64   `json:"user_id"`
+    ProgramStudy  string  `json:"program_study"`
+    AcademicYear  string  `json:"academic_year"`
+    AdvisorID     *int64  `json:"advisor_id"`
+    Nim           string  `json:"nim"`
+}

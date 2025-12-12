@@ -10,3 +10,9 @@ type Lecturer struct {
 	Department string    `gorm:"size:100" json:"department"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+type LecturerCreate struct {
+	UserID     int64  `json:"user_id"`
+	NIP        string `json:"nip"`
+	Department string `json:"department"`
+}

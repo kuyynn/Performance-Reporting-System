@@ -51,3 +51,19 @@ type UserResponse struct {
 	Role        string   `json:"role"`
 	Permissions []string `json:"permissions"`
 }
+
+type AdminUpdateUserRequest struct {
+    FullName       string `json:"full_name"`
+    Email          string `json:"email"`
+    Username       string `json:"username"`
+    Role           string `json:"role"` 
+
+    // For mahasiswa
+    ProgramStudy   string `json:"program_study"`
+    AcademicYear   string `json:"academic_year"`
+    AdvisorID      *int64 `json:"advisor_id"` 
+
+    // For dosen wali
+    NIP            string `json:"nip"`
+    Department     string `json:"department"`
+}
