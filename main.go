@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 
-	"uas/database"
 	"uas/app/repository"
 	"uas/app/service"
 	"uas/config"
+	"uas/database"
 	"uas/middleware"
 	routes "uas/route"
 
@@ -31,22 +31,28 @@ func main() {
 		log.Fatalf("mongo connect: %v", err)
 	}
 
-	// init repos & services
+	// INIT REPOSITORY
 	userRepo := repository.NewUserRepository(db)
-	userService := service.NewUserService(userRepo)
+	studentRepo := repository.NewStudentRepository(db)
+	lecturerRepo := repository.NewLecturerRepository(db)
 	tokenRepo := repository.NewRefreshTokenRepository(db)
-	authService := service.NewAuthService(userRepo, tokenRepo)
 	achRepo := repository.NewAchievementRepository(db)
+
+	// INIT SERVICE
+	userService := service.NewUserService(userRepo)
+	authService := service.NewAuthService(userRepo, tokenRepo)
 	achService := service.NewAchievementService(achRepo, mongoClient)
+	adminService := service.NewAdminService(userRepo, studentRepo, lecturerRepo)
 
 	app := fiber.New()
 
-	// routes
+	// ROUTES
 	routes.SetupRoutes(
 		app,
 		userService,
 		authService,
 		achService,
+		adminService,
 		middleware.AuthRequired([]byte(cfg.JWTSecret)),
 	)
 
