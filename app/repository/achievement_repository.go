@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -16,12 +16,12 @@ type AchievementRepository struct {
 }
 
 type AchievementAdminFilter struct {
-    Status    string
-    StudentID string
-    Sort      string
-    Order     string
-    Limit     int
-    Offset    int
+	Status    string
+	StudentID string
+	Sort      string
+	Order     string
+	Limit     int
+	Offset    int
 }
 
 func NewAchievementRepository(db *sql.DB) *AchievementRepository {
@@ -48,7 +48,7 @@ func (r *AchievementRepository) InsertReference(
 ) error {
 	query := `
         INSERT INTO achievement_references (
-            id, student_id, mongo_achievement_id, status, created_at, updated_at
+            id, student_uuid, mongo_achievement_id, status, created_at, updated_at
         ) VALUES (
             gen_random_uuid(), $1, $2, 'draft', NOW(), NOW()
         )
@@ -65,7 +65,7 @@ func (r *AchievementRepository) Submit(ctx context.Context, achievementID string
             submitted_at = NOW(),
             updated_at = NOW()
         WHERE mongo_achievement_id = $1
-		AND student_id = $2
+		AND student_uuid = $2
 		AND status = 'draft'
     `
 	result, err := r.DB.ExecContext(ctx, query, achievementID, studentID)
@@ -84,7 +84,7 @@ func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID st
 	query := `
         SELECT mongo_achievement_id, status, submitted_at, verified_at, rejection_note
         FROM achievement_references
-        WHERE student_id = $1
+        WHERE student_uuid = $1
         AND ($2 OR is_deleted = false);
     `
 	rows, err := r.DB.QueryContext(ctx, query, studentID, includeDeleted)
@@ -110,14 +110,15 @@ func (r *AchievementRepository) GetByStudentID(ctx context.Context, studentID st
 	return result, nil
 }
 
+// ADMIN: Ambil semua achievement dengan filtering & pagination
 func (r *AchievementRepository) AdminGetAll(
-    ctx context.Context,
-    f AchievementAdminFilter,
+	ctx context.Context,
+	f AchievementAdminFilter,
 ) ([]map[string]interface{}, int64, error) {
-    base := `
+	base := `
         SELECT 
             id,
-            student_id,
+            student_uuid,
             mongo_achievement_id,
             status,
             submitted_at,
@@ -129,121 +130,121 @@ func (r *AchievementRepository) AdminGetAll(
         FROM achievement_references
         WHERE is_deleted = FALSE
     `
-    args := []interface{}{}
-    idx := 1
+	args := []interface{}{}
+	idx := 1
 
-    // Filter status
-    if f.Status != "" {
-        base += fmt.Sprintf(" AND status = $%d", idx)
-        args = append(args, f.Status)
-        idx++
-    }
+	// Filter status
+	if f.Status != "" {
+		base += fmt.Sprintf(" AND status = $%d", idx)
+		args = append(args, f.Status)
+		idx++
+	}
 
-    // Filter student_id
-    if f.StudentID != "" {
-        base += fmt.Sprintf(" AND student_id = $%d", idx)
-        args = append(args, f.StudentID)
-        idx++
-    }
+	// Filter student_uuid
+	if f.StudentID != "" {
+		base += fmt.Sprintf(" AND student_uuid = $%d", idx)
+		args = append(args, f.StudentID)
+		idx++
+	}
 
-    // ----- Hitung total (untuk pagination) -----
-    countQuery := "SELECT COUNT(*) FROM (" + base + ") AS sub"
-    var total int64
-    if err := r.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-        return nil, 0, err
-    }
+	// ----- Hitung total (untuk pagination) -----
+	countQuery := "SELECT COUNT(*) FROM (" + base + ") AS sub"
+	var total int64
+	if err := r.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
 
-    // ----- Sorting -----
-    sortCol := "created_at"
-    switch f.Sort {
-    case "created_at", "submitted_at", "verified_at", "status":
-        sortCol = f.Sort
-    }
-    orderDir := "DESC"
-    if strings.ToLower(f.Order) == "asc" {
-        orderDir = "ASC"
-    }
-    base += " ORDER BY " + sortCol + " " + orderDir
+	// ----- Sorting -----
+	sortCol := "created_at"
+	switch f.Sort {
+	case "created_at", "submitted_at", "verified_at", "status":
+		sortCol = f.Sort
+	}
+	orderDir := "DESC"
+	if strings.ToLower(f.Order) == "asc" {
+		orderDir = "ASC"
+	}
+	base += " ORDER BY " + sortCol + " " + orderDir
 
-    // ----- Pagination (LIMIT / OFFSET) -----
-    if f.Limit > 0 {
-        base += fmt.Sprintf(" LIMIT $%d", idx)
-        args = append(args, f.Limit)
-        idx++
-    }
-    if f.Offset > 0 {
-        base += fmt.Sprintf(" OFFSET $%d", idx)
-        args = append(args, f.Offset)
-        idx++
-    }
+	// ----- Pagination (LIMIT / OFFSET) -----
+	if f.Limit > 0 {
+		base += fmt.Sprintf(" LIMIT $%d", idx)
+		args = append(args, f.Limit)
+		idx++
+	}
+	if f.Offset > 0 {
+		base += fmt.Sprintf(" OFFSET $%d", idx)
+		args = append(args, f.Offset)
+		idx++
+	}
 
-    // ----- Eksekusi query utama -----
-    rows, err := r.DB.QueryContext(ctx, base, args...)
-    if err != nil {
-        return nil, 0, err
-    }
-    defer rows.Close()
-    var results []map[string]interface{}
-    for rows.Next() {
-        var (
-            id            string
-            studentID     string
-            mongoID       string
-            status        string
-            submittedAt   sql.NullTime
-            verifiedAt    sql.NullTime
-            verifiedBy    sql.NullInt64
-            rejectionNote sql.NullString
-            createdAt     time.Time
-            updatedAt     time.Time
-        )
-        if err := rows.Scan(
-            &id,
-            &studentID,
-            &mongoID,
-            &status,
-            &submittedAt,
-            &verifiedAt,
-            &verifiedBy,
-            &rejectionNote,
-            &createdAt,
-            &updatedAt,
-        ); err != nil {
-            return nil, 0, err
-        }
-        row := map[string]interface{}{
-            "id":             id,
-            "student_id":     studentID,
-            "mongo_id":       mongoID,
-            "status":         status,
-            "submitted_at":   nil,
-            "verified_at":    nil,
-            "verified_by":    nil,
-            "rejection_note": nil,
-            "created_at":     createdAt,
-            "updated_at":     updatedAt,
-        }
-        if submittedAt.Valid {
-            row["submitted_at"] = submittedAt.Time
-        }
-        if verifiedAt.Valid {
-            row["verified_at"] = verifiedAt.Time
-        }
-        if verifiedBy.Valid {
-            row["verified_by"] = verifiedBy.Int64
-        }
-        if rejectionNote.Valid {
-            row["rejection_note"] = rejectionNote.String
-        }
-        results = append(results, row)
-    }
-    if err := rows.Err(); err != nil {
-        return nil, 0, err
-    }
-    return results, total, nil
+	// ----- Eksekusi query utama -----
+	rows, err := r.DB.QueryContext(ctx, base, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var (
+			id            string
+			studentID     sql.NullString
+			mongoID       string
+			status        string
+			submittedAt   sql.NullTime
+			verifiedAt    sql.NullTime
+			verifiedBy    sql.NullInt64
+			rejectionNote sql.NullString
+			createdAt     time.Time
+			updatedAt     time.Time
+		)
+		if err := rows.Scan(
+			&id,
+			&studentID,
+			&mongoID,
+			&status,
+			&submittedAt,
+			&verifiedAt,
+			&verifiedBy,
+			&rejectionNote,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		row := map[string]interface{}{
+			"id":             id,
+			"student_uuid":   nil,
+			"mongo_id":       mongoID,
+			"status":         status,
+			"submitted_at":   nil,
+			"verified_at":    nil,
+			"verified_by":    nil,
+			"rejection_note": nil,
+			"created_at":     createdAt,
+			"updated_at":     updatedAt,
+		}
+		if submittedAt.Valid {
+			row["submitted_at"] = submittedAt.Time
+		}
+		if verifiedAt.Valid {
+			row["verified_at"] = verifiedAt.Time
+		}
+		if verifiedBy.Valid {
+			row["verified_by"] = verifiedBy.Int64
+		}
+		if rejectionNote.Valid {
+			row["rejection_note"] = rejectionNote.String
+		}
+		results = append(results, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
 }
 
-// Ambil semua student_id yang dibimbing dosen tertentu
+// Ambil semua student_uuid yang dibimbing dosen tertentu
 func (r *AchievementRepository) GetStudentsByAdvisor(ctx context.Context, advisorID int64) ([]string, error) {
 	query := `
         SELECT id 
@@ -273,7 +274,7 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
 	}
 	query := `
         SELECT 
-            student_id,
+            student_uuid,
             mongo_achievement_id,
             status,
             submitted_at,
@@ -283,7 +284,7 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
             created_at,
             updated_at
         FROM achievement_references
-        WHERE student_id = ANY($1)
+        WHERE student_uuid = ANY($1)
         ORDER BY created_at DESC
     `
 	rows, err := r.DB.QueryContext(ctx, query, pq.Array(studentIDs))
@@ -318,7 +319,7 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
 			return nil, err
 		}
 		results = append(results, map[string]interface{}{
-			"student_id":     studentID,
+			"student_uuid":   studentID,
 			"mongo_id":       mongoID,
 			"status":         status,
 			"submitted_at":   submittedAt,
@@ -334,18 +335,18 @@ func (r *AchievementRepository) GetReferencesByStudentList(ctx context.Context, 
 
 // Ambil lecturer_id berdasarkan user_id dosen
 func (r *AchievementRepository) GetLecturerID(ctx context.Context, userID int64) (int64, error) {
-    query := `
+	query := `
         SELECT id
         FROM lecturers
         WHERE user_id = $1
         LIMIT 1
     `
-    var lecturerID int64
-    err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
-    if err != nil {
-        return 0, err
-    }
-    return lecturerID, nil
+	var lecturerID int64
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&lecturerID)
+	if err != nil {
+		return 0, err
+	}
+	return lecturerID, nil
 }
 
 // Verifikasi achievement dan update poin mahasiswa
@@ -370,7 +371,7 @@ func (r *AchievementRepository) Verify(
             verified_by = $1,
             updated_at = NOW()
         WHERE mongo_achievement_id = $2
-        AND student_id = $3
+        AND student_uuid = $3
         AND status = 'submitted'
     `, lecturerID, achievementID, studentID)
 	if err != nil {
@@ -393,7 +394,7 @@ func (r *AchievementRepository) Verify(
 
 func (r *AchievementRepository) GetStudentIDByAchievement(ctx context.Context, achievementID string) (string, error) {
 	query := `
-        SELECT student_id
+        SELECT student_uuid
         FROM achievement_references
         WHERE mongo_achievement_id = $1
         LIMIT 1
@@ -429,7 +430,7 @@ func (r *AchievementRepository) Reject(
             verified_by = $2, 
             updated_at = NOW()
         WHERE mongo_achievement_id = $3
-          AND student_id = $4
+          AND student_uuid = $4
           AND status = 'submitted'
     `
 	_, err := r.DB.ExecContext(ctx, query, note, lecturerID, achievementID, studentID)
@@ -450,4 +451,3 @@ func (r *AchievementRepository) SoftDelete(ctx context.Context, achievementID st
 	_, err := r.DB.ExecContext(ctx, query, achievementID, userID)
 	return err
 }
-
