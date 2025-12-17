@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 	"strconv"
 	"strings"
+	"time"
+	"os"
 
+	"path/filepath"
 	"uas/app/repository"
 	"uas/utils"
 
@@ -447,83 +449,403 @@ func (s *AchievementService) DeleteHandler(c *fiber.Ctx) error {
 
 // ADMIN: VIEW ALL ACHIEVEMENTS WITH FILTERING & PAGINATION
 func (s *AchievementService) AdminListAchievements(c *fiber.Ctx) error {
-    ctx := c.Context()
+	ctx := c.Context()
 
-    // --- Ambil query params ---
-    status := c.Query("status")
-    studentID := c.Query("student_id") 
-    sort := c.Query("sort")
-    if sort == "" {
-        sort = "created_at"
-    }
-    order := c.Query("order")
-    if order == "" {
-        order = "desc"
-    }
+	// --- Ambil query params ---
+	status := c.Query("status")
+	studentID := c.Query("student_id")
+	sort := c.Query("sort")
+	if sort == "" {
+		sort = "created_at"
+	}
+	order := c.Query("order")
+	if order == "" {
+		order = "desc"
+	}
 
-    // Pagination
-    page := 1
-    limit := 10
-    if pStr := c.Query("page"); pStr != "" {
-        if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
-            page = p
-        }
-    }
-    if lStr := c.Query("limit"); lStr != "" {
-        if l, err := strconv.Atoi(lStr); err == nil && l > 0 && l <= 100 {
-            limit = l
-        }
-    }
-    offset := (page - 1) * limit
+	// Pagination
+	page := 1
+	limit := 10
+	if pStr := c.Query("page"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if lStr := c.Query("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+	offset := (page - 1) * limit
 
-    // --- Panggil repository ---
-    filter := repository.AchievementAdminFilter{
-        Status:    status,
-        StudentID: studentID,
-        Sort:      sort,
-        Order:     strings.ToLower(order),
-        Limit:     limit,
-        Offset:    offset,
-    }
-    refs, total, err := s.Repo.AdminGetAll(ctx, filter)
-    if err != nil {
-        return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-    }
+	// --- Panggil repository ---
+	filter := repository.AchievementAdminFilter{
+		Status:    status,
+		StudentID: studentID,
+		Sort:      sort,
+		Order:     strings.ToLower(order),
+		Limit:     limit,
+		Offset:    offset,
+	}
+	refs, total, err := s.Repo.AdminGetAll(ctx, filter)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
 
-    // --- Join dengan MongoDB ---
-    collection := s.Mongo.Database("uas").Collection("achievements")
-    var results []map[string]interface{}
-    for _, ref := range refs {
-        mongoID, ok := ref["mongo_id"].(string)
-        if !ok || mongoID == "" {
-            continue
-        }
-        objID, err := primitive.ObjectIDFromHex(mongoID)
-        if err != nil {
-            continue
-        }
-        var mongoDoc map[string]interface{}
-        if err := collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&mongoDoc); err != nil {
-            continue
-        }
-        results = append(results, map[string]interface{}{
-            "reference": ref,
-            "mongo":     mongoDoc,
-        })
-    }
+	// --- Join dengan MongoDB ---
+	collection := s.Mongo.Database("uas").Collection("achievements")
+	var results []map[string]interface{}
+	for _, ref := range refs {
+		mongoID, ok := ref["mongo_id"].(string)
+		if !ok || mongoID == "" {
+			continue
+		}
+		objID, err := primitive.ObjectIDFromHex(mongoID)
+		if err != nil {
+			continue
+		}
+		var mongoDoc map[string]interface{}
+		if err := collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&mongoDoc); err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"reference": ref,
+			"mongo":     mongoDoc,
+		})
+	}
 
-    // --- Pagination meta ---
-    totalPages := 0
-    if limit > 0 {
-        totalPages = int((total + int64(limit) - 1) / int64(limit))
-    }
-    return c.JSON(fiber.Map{
-        "data": results,
-        "meta": fiber.Map{
-            "page":        page,
-            "limit":       limit,
-            "total":       total,
-            "total_pages": totalPages,
-        },
-    })
+	// --- Pagination meta ---
+	totalPages := 0
+	if limit > 0 {
+		totalPages = int((total + int64(limit) - 1) / int64(limit))
+	}
+	return c.JSON(fiber.Map{
+		"data": results,
+		"meta": fiber.Map{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+func (s *AchievementService) GetDetail(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	ctx := c.Context()
+	achievementID := c.Params("id")
+	// 1. Validasi ObjectId Mongo
+	objID, err := primitive.ObjectIDFromHex(achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_achievement_id",
+		})
+	}
+	// 2. Ambil reference dari PostgreSQL
+	ref, err := s.Repo.GetReferenceByMongoID(ctx, achievementID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "achievement_not_found",
+		})
+	}
+	studentUUID, _ := ref["student_uuid"].(string)
+	// 3. RBAC CHECK
+	switch claims.Role {
+	case "admin":
+	case "mahasiswa":
+		myStudentID, err := s.Repo.GetStudentID(ctx, claims.UserID)
+		if err != nil || myStudentID != studentUUID {
+			return c.Status(403).JSON(fiber.Map{
+				"error": "forbidden",
+			})
+		}
+	case "dosen wali":
+		lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+		if err != nil {
+			return c.Status(403).JSON(fiber.Map{
+				"error": "lecturer_profile_not_found",
+			})
+		}
+		ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentUUID)
+		if err != nil || !ok {
+			return c.Status(403).JSON(fiber.Map{
+				"error": "student_not_supervised",
+			})
+		}
+	default:
+		return c.Status(403).JSON(fiber.Map{
+			"error": "forbidden",
+		})
+	}
+	// 4. Ambil dokumen Mongo
+	collection := s.Mongo.Database("uas").Collection("achievements")
+	var mongoDoc map[string]interface{}
+	if err := collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&mongoDoc); err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "mongo_document_not_found",
+		})
+	}
+	// 5. Response
+	return c.JSON(fiber.Map{
+		"reference": ref,
+		"mongo":     mongoDoc,
+	})
+}
+
+// UPDATE DRAFT ACHIEVEMENT
+func (s *AchievementService) UpdateDraft(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	ctx := c.Context()
+	achievementID := c.Params("id")
+
+	// 1. Hanya mahasiswa
+	if claims.Role != "mahasiswa" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only students can update achievements",
+		})
+	}
+
+	// 2. Validasi ObjectId
+	objID, err := primitive.ObjectIDFromHex(achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_achievement_id",
+		})
+	}
+
+	// 3. Ambil student_id
+	studentID, err := s.Repo.GetStudentID(ctx, claims.UserID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "student_profile_not_found",
+		})
+	}
+
+	// 4. Cek reference & status
+	ref, err := s.Repo.GetReferenceByMongoID(ctx, achievementID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "achievement_not_found",
+		})
+	}
+	if ref["status"] != "draft" {
+		return c.Status(422).JSON(fiber.Map{
+			"error": "only_draft_can_be_updated",
+		})
+	}
+	if ref["student_uuid"] != studentID {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "not_achievement_owner",
+		})
+	}
+
+	// 5. Body parser (reuse DTO Create)
+	var input AchievementInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_request",
+		})
+	}
+
+	// 6. Update Mongo document
+	collection := s.Mongo.Database("uas").Collection("achievements")
+	update := bson.M{
+		"$set": bson.M{
+			"achievementType": input.AchievementType,
+			"title":           input.Title,
+			"description":     input.Description,
+			"details":         input.Details,
+			"tags":            input.Tags,
+			"points":          input.Points,
+			"updatedAt":       time.Now(),
+		},
+	}
+	result, err := collection.UpdateOne(
+		ctx,
+		bson.M{"_id": objID},
+		update,
+	)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "failed_update_mongo",
+		})
+	}
+	if result.MatchedCount == 0 {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "mongo_document_not_found",
+		})
+	}
+
+	// 7. Ambil data terbaru untuk response
+	var mongoDoc map[string]interface{}
+	_ = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&mongoDoc)
+	return c.JSON(fiber.Map{
+		"message": "achievement updated",
+		"id":      achievementID,
+		"status":  "draft",
+		"mongo":   mongoDoc,
+	})
+}
+
+// GET ACHIEVEMENT HISTORY
+func (s *AchievementService) GetHistory(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	ctx := c.Context()
+	achievementID := c.Params("id")
+
+	// 1. Validasi ObjectId
+	if _, err := primitive.ObjectIDFromHex(achievementID); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_achievement_id",
+		})
+	}
+
+	// 2. Ambil reference (untuk RBAC)
+	ref, err := s.Repo.GetReferenceByMongoID(ctx, achievementID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "achievement_not_found",
+		})
+	}
+	studentUUID, _ := ref["student_uuid"].(string)
+
+	// 3. RBAC
+	switch claims.Role {
+	case "admin":
+	case "mahasiswa":
+		myStudentID, err := s.Repo.GetStudentID(ctx, claims.UserID)
+		if err != nil || myStudentID != studentUUID {
+			return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+		}
+	case "dosen wali":
+		lecturerID, err := s.Repo.GetLecturerID(ctx, claims.UserID)
+		if err != nil {
+			return c.Status(403).JSON(fiber.Map{"error": "lecturer_profile_not_found"})
+		}
+		ok, err := s.Repo.IsStudentSupervised(ctx, lecturerID, studentUUID)
+		if err != nil || !ok {
+			return c.Status(403).JSON(fiber.Map{"error": "student_not_supervised"})
+		}
+	default:
+		return c.Status(403).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	// 4. Ambil history
+	history, err := s.Repo.GetHistoryByMongoID(ctx, achievementID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "failed_get_history",
+		})
+	}
+	return c.JSON(fiber.Map{
+		"achievement_id": achievementID,
+		"history":        history,
+	})
+}
+
+// UPLOAD ATTACHMENT
+func (s *AchievementService) UploadAttachment(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*utils.Claims)
+	ctx := c.Context()
+	achievementID := c.Params("id")
+
+	// 1. Hanya mahasiswa
+	if claims.Role != "mahasiswa" {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "only students can upload attachments",
+		})
+	}
+
+	// 2. Validasi ObjectId
+	objID, err := primitive.ObjectIDFromHex(achievementID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_achievement_id",
+		})
+	}
+
+	// 3. Ambil student_id
+	studentID, err := s.Repo.GetStudentID(ctx, claims.UserID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "student_profile_not_found",
+		})
+	}
+
+	// 4. Ambil reference & cek ownership
+	ref, err := s.Repo.GetReferenceByMongoID(ctx, achievementID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "achievement_not_found",
+		})
+	}
+	if ref["student_uuid"] != studentID {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "not_achievement_owner",
+		})
+	}
+
+	// 5. Status check
+	if ref["status"] != "draft" && ref["status"] != "submitted" {
+		return c.Status(422).JSON(fiber.Map{
+			"error": "attachments_not_allowed_for_this_status",
+		})
+	}
+
+	// 6. Ambil file
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "file_required",
+		})
+	}
+
+	// 7. Validasi tipe file (basic)
+	allowed := map[string]bool{
+		".pdf":  true,
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+	}
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if !allowed[ext] {
+		return c.Status(422).JSON(fiber.Map{
+			"error": "invalid_file_type",
+		})
+	}
+
+	// 8. Simpan file
+	basePath := fmt.Sprintf("./uploads/achievements/%s", achievementID)
+	_ = os.MkdirAll(basePath, os.ModePerm)
+	savePath := fmt.Sprintf("%s/%s", basePath, file.Filename)
+	if err := c.SaveFile(file, savePath); err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "failed_save_file",
+		})
+	}
+
+	// 9. Update MongoDB
+	collection := s.Mongo.Database("uas").Collection("achievements")
+	attachment := bson.M{
+		"filename":   file.Filename,
+		"path":       savePath,
+		"uploadedAt": time.Now(),
+	}
+	_, err = collection.UpdateOne(
+		ctx,
+		bson.M{"_id": objID},
+		bson.M{"$push": bson.M{"attachments": attachment}},
+	)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "failed_update_mongo",
+		})
+	}
+	return c.JSON(fiber.Map{
+		"message": "attachment uploaded",
+		"file": fiber.Map{
+			"name": file.Filename,
+			"path": savePath,
+		},
+	})
 }

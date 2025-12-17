@@ -451,3 +451,258 @@ func (r *AchievementRepository) SoftDelete(ctx context.Context, achievementID st
 	_, err := r.DB.ExecContext(ctx, query, achievementID, userID)
 	return err
 }
+
+// GET reference by mongo_achievement_id
+func (r *AchievementRepository) GetReferenceByMongoID(
+	ctx context.Context,
+	mongoID string,
+) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			id,
+			student_uuid,
+			mongo_achievement_id,
+			status,
+			submitted_at,
+			verified_at,
+			verified_by,
+			rejection_note,
+			created_at,
+			updated_at
+		FROM achievement_references
+		WHERE mongo_achievement_id = $1
+		  AND is_deleted = FALSE
+		LIMIT 1
+	`
+	row := r.DB.QueryRowContext(ctx, query, mongoID)
+	var (
+		id            string
+		studentUUID   sql.NullString
+		status        string
+		submittedAt   sql.NullTime
+		verifiedAt    sql.NullTime
+		verifiedBy    sql.NullInt64
+		rejectionNote sql.NullString
+		createdAt     time.Time
+		updatedAt     time.Time
+	)
+	if err := row.Scan(
+		&id,
+		&studentUUID,
+		&mongoID,
+		&status,
+		&submittedAt,
+		&verifiedAt,
+		&verifiedBy,
+		&rejectionNote,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return nil, err
+	}
+	ref := map[string]interface{}{
+		"id":             id,
+		"mongo_id":       mongoID,
+		"status":         status,
+		"student_uuid":   nil,
+		"submitted_at":   nil,
+		"verified_at":    nil,
+		"verified_by":    nil,
+		"rejection_note": nil,
+		"created_at":     createdAt,
+		"updated_at":     updatedAt,
+	}
+	if studentUUID.Valid {
+		ref["student_uuid"] = studentUUID.String
+	}
+	if submittedAt.Valid {
+		ref["submitted_at"] = submittedAt.Time
+	}
+	if verifiedAt.Valid {
+		ref["verified_at"] = verifiedAt.Time
+	}
+	if verifiedBy.Valid {
+		ref["verified_by"] = verifiedBy.Int64
+	}
+	if rejectionNote.Valid {
+		ref["rejection_note"] = rejectionNote.String
+	}
+	return ref, nil
+}
+
+// GET achievement history by mongo_achievement_id
+func (r *AchievementRepository) GetHistoryByMongoID(
+	ctx context.Context,
+	mongoID string,
+) ([]map[string]interface{}, error) {
+	query := `
+		SELECT 
+			status,
+			created_at,
+			submitted_at,
+			verified_at,
+			verified_by,
+			rejection_note
+		FROM achievement_references
+		WHERE mongo_achievement_id = $1
+		  AND is_deleted = FALSE
+		LIMIT 1
+	`
+	var (
+		status        string
+		createdAt     time.Time
+		submittedAt   sql.NullTime
+		verifiedAt    sql.NullTime
+		verifiedBy    sql.NullInt64
+		rejectionNote sql.NullString
+	)
+	err := r.DB.QueryRowContext(ctx, query, mongoID).Scan(
+		&status,
+		&createdAt,
+		&submittedAt,
+		&verifiedAt,
+		&verifiedBy,
+		&rejectionNote,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var history []map[string]interface{}
+
+	// Draft
+	history = append(history, map[string]interface{}{
+		"status": "draft",
+		"at":     createdAt,
+		"by":     nil,
+	})
+
+	// Submitted
+	if submittedAt.Valid {
+		history = append(history, map[string]interface{}{
+			"status": "submitted",
+			"at":     submittedAt.Time,
+			"by":     "student",
+		})
+	}
+
+	// Verified / Rejected
+	if status == "verified" && verifiedAt.Valid {
+		history = append(history, map[string]interface{}{
+			"status": "verified",
+			"at":     verifiedAt.Time,
+			"by":     verifiedBy.Int64,
+		})
+	}
+	if status == "rejected" && verifiedAt.Valid {
+		history = append(history, map[string]interface{}{
+			"status": "rejected",
+			"at":     verifiedAt.Time,
+			"by":     verifiedBy.Int64,
+			"note":   rejectionNote.String,
+		})
+	}
+	return history, nil
+}
+
+// GET all verified achievement references
+func (r *AchievementRepository) GetVerifiedAchievementRefs(
+	ctx context.Context,
+) ([]map[string]interface{}, error) {
+	query := `
+		SELECT
+			ar.mongo_achievement_id,
+			ar.verified_at
+		FROM achievement_references ar
+		WHERE ar.status = 'verified'
+		  AND ar.is_deleted = false
+	`
+	rows, err := r.DB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var mongoID string
+		var verifiedAt time.Time
+		if err := rows.Scan(&mongoID, &verifiedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"mongo_id":   mongoID,
+			"verified_at": verifiedAt,
+		})
+	}
+	return results, nil
+}
+
+// GET top 5 students dengan achievement VERIFIED terbanyak
+func (r *AchievementRepository) GetTopStudents(
+	ctx context.Context,
+) ([]map[string]interface{}, error) {
+	query := `
+		SELECT student_uuid, COUNT(*) AS total
+		FROM achievement_references
+		WHERE status = 'verified'
+			AND is_deleted = false
+			AND student_uuid IS NOT NULL
+		GROUP BY student_uuid
+		ORDER BY total DESC
+		LIMIT 5
+	`
+	rows, err := r.DB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var studentID string
+		var total int
+		if err := rows.Scan(&studentID, &total); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"student_id": studentID,
+			"total":      total,
+		})
+	}
+	return results, nil
+}
+
+// GET achievements by student UUID
+func (r *AchievementRepository) GetByStudentUUID(
+	ctx context.Context,
+	studentUUID string,
+) ([]map[string]interface{}, error) {
+
+	query := `
+		SELECT
+			mongo_achievement_id,
+			status,
+			verified_at
+		FROM achievement_references
+		WHERE student_uuid = $1
+		  AND is_deleted = false
+	`
+	rows, err := r.DB.QueryContext(ctx, query, studentUUID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []map[string]interface{}
+	for rows.Next() {
+		var mongoID string
+		var status string
+		var verifiedAt *string
+		if err := rows.Scan(&mongoID, &status, &verifiedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"mongo_id":    mongoID,
+			"status":      status,
+			"verified_at": verifiedAt,
+		})
+	}
+	return results, nil
+}

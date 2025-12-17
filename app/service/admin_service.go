@@ -4,7 +4,8 @@ import (
 	"uas/app/model"
 	"uas/app/repository"
 	"uas/utils"
-
+	"database/sql"
+	
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -64,23 +65,19 @@ func (s *AdminService) CreateUser(c *fiber.Ctx) error {
 
 	// ROLE = MAHASISWA → buat profile
 	if input.Role == "mahasiswa" {
-
 		// generate NIM: 43420 + user_id
 		nim := "4342025" + utils.IntToString(userID)
-
 		student := model.StudentCreate{
 			UserID:       userID,
 			ProgramStudy: input.ProgramStudy,
 			AcademicYear: input.AcademicYear,
-			AdvisorID:    input.AdvisorID, // boleh null
+			AdvisorID:    input.AdvisorID, 
 			Nim:          nim,
 		}
-
 		_, err := s.StudentRepo.Create(c.Context(), student)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "failed_create_student_profile"})
 		}
-
 		return c.JSON(fiber.Map{
 			"message": "student user created",
 			"user_id": userID,
@@ -90,22 +87,18 @@ func (s *AdminService) CreateUser(c *fiber.Ctx) error {
 
 	// ROLE = DOSEN WALI → buat profile
 	if input.Role == "dosen wali" {
-
 		if input.NIP == "" || input.Department == "" {
 			return c.Status(400).JSON(fiber.Map{"error": "nip_and_department_required"})
 		}
-
 		lecturer := model.LecturerCreate{
 			UserID:     userID,
 			NIP:        input.NIP,
 			Department: input.Department,
 		}
-
 		_, err := s.LecturerRepo.Create(c.Context(), lecturer)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "failed_create_lecturer_profile"})
 		}
-
 		return c.JSON(fiber.Map{
 			"message": "lecturer user created",
 			"user_id": userID,
@@ -226,4 +219,64 @@ func (s *AdminService) GetAllUsers(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed_fetch_users"})
 	}
 	return c.JSON(users)
+}
+
+// GET USER BY ID
+func (s *AdminService) GetUserByID(c *fiber.Ctx) error {
+	userID, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_user_id",
+		})
+	}
+	user, err := s.UserRepo.FindById(c.Context(), int64(userID))
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "user_not_found",
+		})
+	}
+	return c.JSON(user)
+}
+
+// UPDATE USER ROLE
+func (s *AdminService) UpdateUserRole(c *fiber.Ctx) error {
+	userID, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_user_id",
+		})
+	}
+	var input model.AdminUpdateUserRoleRequest
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid_request",
+		})
+	}
+	if input.Role != "admin" && input.Role != "mahasiswa" && input.Role != "dosen wali" {
+		return c.Status(422).JSON(fiber.Map{
+			"error": "invalid_role",
+		})
+	}
+	roleID, err := s.UserRepo.GetRoleIDByName(input.Role)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "role_not_found",
+		})
+	}
+	err = s.UserRepo.UpdateRole(c.Context(), int64(userID), roleID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "user_not_found",
+			})
+		}
+		return c.Status(500).JSON(fiber.Map{
+			"error": "failed_update_role",
+		})
+	}
+	return c.JSON(fiber.Map{
+		"message": "user role updated",
+		"user_id": userID,
+		"role":    input.Role,
+	})
 }

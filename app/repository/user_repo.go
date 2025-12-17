@@ -18,6 +18,7 @@ type UserRepository interface {
 	FindByUsernameOrEmail(usernameOrEmail string) (*model.User, error)
 	GetPermissionsByUserID(userID int64) ([]string, error)
 	Logout()
+	UpdateRole(ctx context.Context, userID int64, roleID string) error
 }
 
 type UserRepositoryImpl struct {
@@ -178,11 +179,11 @@ func (r *UserRepositoryImpl) CreateRaw(ctx context.Context, username, fullName, 
 
 // UPDATE RAW USER (Admin can update username, fullname, email, role)
 func (r *UserRepositoryImpl) UpdateRaw(
-    ctx context.Context,
-    id int64,
-    username, fullName, email, roleID string,
+	ctx context.Context,
+	id int64,
+	username, fullName, email, roleID string,
 ) error {
-    query := `
+	query := `
         UPDATE users
         SET username=$1,
             full_name=$2,
@@ -191,12 +192,38 @@ func (r *UserRepositoryImpl) UpdateRaw(
             updated_at = NOW()
         WHERE id=$5
     `
-    _, err := r.DB.ExecContext(ctx, query,
-        username,
-        fullName,
-        email,
-        roleID,
-        id,
-    )
-    return err
+	_, err := r.DB.ExecContext(ctx, query,
+		username,
+		fullName,
+		email,
+		roleID,
+		id,
+	)
+	return err
 }
+
+func (r *UserRepositoryImpl) UpdateRole(
+	ctx context.Context,
+	userID int64,
+	roleID string,
+) error {
+	query := `
+		UPDATE users
+		SET role_id = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+	`
+	result, err := r.DB.ExecContext(ctx, query, roleID, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+

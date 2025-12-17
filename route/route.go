@@ -14,6 +14,9 @@ func SetupRoutes(
 	achievementService *service.AchievementService,
 	adminService *service.AdminService,
 	authMiddleware fiber.Handler,
+	studentService *service.StudentService,
+	lecturerService *service.LecturerService,
+	reportService *service.ReportService,
 ) {
 
 	// PUBLIC AUTH (NO TOKEN)
@@ -32,14 +35,29 @@ func SetupRoutes(
 	// ADMIN PROTECTED
 	admin := api.Group("/admin", middleware.AdminOnly)
 
-	// USER CRUD
+	// ADMIN: USER CRUD
 	admin.Post("/users", adminService.CreateUser)
 	admin.Put("/users/:id", adminService.UpdateUser)
 	admin.Delete("/users/:id", adminService.DeleteUser)
 	admin.Get("/users", adminService.GetAllUsers)
+	admin.Get("/users/:id", adminService.GetUserByID)
+	admin.Put("/users/:id/role", adminService.UpdateUserRole)
+
+	// ADMIN: STUDENT
+	admin.Get("/students", studentService.GetAll)
+	admin.Get("/students/:id", studentService.GetByID)
+	admin.Put("/students/:id/advisor", studentService.AssignAdvisor)
+	admin.Get("/students/:id/achievements", studentService.GetAchievements)
 
 	// ADMIN — VIEW ALL ACHIEVEMENTS
 	admin.Get("/achievements", achievementService.AdminListAchievements)
+
+	// ADMIN: LECTURER
+	admin.Get("/lecturers", lecturerService.GetAll)
+	api.Get("/lecturers/:id/advisees", lecturerService.GetAdvisees)
+
+	// ADMIN: REPORTS statistics
+	admin.Get("/reports/statistics", reportService.GetStatistics)
 
 	// ACHIEVEMENTS
 	api.Post("/achievements", achievementService.CreateHandler)
@@ -49,5 +67,9 @@ func SetupRoutes(
 	api.Get("/achievements/supervised", achievementService.GetSupervisedAchievements)
 	api.Post("/achievements/:id/verify", achievementService.Verify)
 	api.Post("/achievements/:id/reject", achievementService.Reject)
-
+	api.Get("/achievements/:id", achievementService.GetDetail)
+	api.Put("/achievements/:id", achievementService.UpdateDraft)
+	api.Get("/achievements/:id/history", achievementService.GetHistory)
+	api.Post("/achievements/:id/attachments", achievementService.UploadAttachment)
+	api.Get("/reports/student/:id", reportService.GetStudentReport)
 }
