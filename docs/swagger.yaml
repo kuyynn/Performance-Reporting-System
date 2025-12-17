@@ -1,0 +1,446 @@
+openapi: 3.0.3
+info:
+  title: UAS API
+  description: API documentation for UAS system
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+
+tags:
+  - name: Auth
+  - name: Admin - Users
+  - name: Admin - Students
+  - name: Admin - Lecturers
+  - name: Admin - Achievements
+  - name: Achievements
+  - name: Reports
+  - name: Lecturers
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  # ================= AUTH =================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login success
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh token
+      security: []
+      responses:
+        '200':
+          description: Token refreshed
+
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: Get user profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile data
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+
+  # ================= ADMIN USERS =================
+  /admin/users:
+    get:
+      tags: [Admin - Users]
+      summary: Get all users
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List users
+    post:
+      tags: [Admin - Users]
+      summary: Create user
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: User created
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin - Users]
+      summary: Get user by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User detail
+    put:
+      tags: [Admin - Users]
+      summary: Update user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User updated
+    delete:
+      tags: [Admin - Users]
+      summary: Delete user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: User deleted
+
+  /admin/users/{id}/role:
+    put:
+      tags: [Admin - Users]
+      summary: Update user role
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Role updated
+
+  # ================= ADMIN STUDENTS =================
+  /admin/students:
+    get:
+      tags: [Admin - Students]
+      summary: Get all students
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List students
+
+  /admin/students/{id}:
+    get:
+      tags: [Admin - Students]
+      summary: Get student by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Student detail
+
+  /admin/students/{id}/advisor:
+    put:
+      tags: [Admin - Students]
+      summary: Assign advisor
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Advisor assigned
+
+  /admin/students/{id}/achievements:
+    get:
+      tags: [Admin - Students]
+      summary: Get student achievements
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Achievement list
+
+  # ================= ADMIN LECTURERS =================
+  /admin/lecturers:
+    get:
+      tags: [Admin - Lecturers]
+      summary: Get all lecturers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List lecturers
+
+  # ================= ADMIN ACHIEVEMENTS =================
+  /admin/achievements:
+    get:
+      tags: [Admin - Achievements]
+      summary: Get all achievements
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Achievement list
+
+  # ================= REPORTS =================
+  /admin/reports/statistics:
+    get:
+      tags: [Reports]
+      summary: Get statistics report
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Statistics data
+
+  /reports/student/{id}:
+    get:
+      tags: [Reports]
+      summary: Get student report
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Student report
+
+  # ================= LECTURER =================
+  /lecturers/{id}/advisees:
+    get:
+      tags: [Lecturers]
+      summary: Get lecturer advisees
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Advisee list
+
+  # ================= ACHIEVEMENTS =================
+  /achievements:
+    post:
+      tags: [Achievements]
+      summary: Create achievement
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Achievement created
+
+  /achievements/me:
+    get:
+      tags: [Achievements]
+      summary: Get my achievements
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: My achievements
+
+  /achievements/supervised:
+    get:
+      tags: [Achievements]
+      summary: Get supervised achievements
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Supervised achievements
+
+  /achievements/{id}:
+    get:
+      tags: [Achievements]
+      summary: Get achievement detail
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Achievement detail
+    put:
+      tags: [Achievements]
+      summary: Update draft achievement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Achievement updated
+    delete:
+      tags: [Achievements]
+      summary: Delete achievement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Deleted
+
+  /achievements/{id}/submit:
+    post:
+      tags: [Achievements]
+      summary: Submit achievement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Submitted
+
+  /achievements/{id}/verify:
+    post:
+      tags: [Achievements]
+      summary: Verify achievement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Verified
+
+  /achievements/{id}/reject:
+    post:
+      tags: [Achievements]
+      summary: Reject achievement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Rejected
+
+  /achievements/{id}/history:
+    get:
+      tags: [Achievements]
+      summary: Get achievement history
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: History list
+
+  /achievements/{id}/attachments:
+    post:
+      tags: [Achievements]
+      summary: Upload achievement attachment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: File uploaded

@@ -5,6 +5,7 @@ import (
 	"uas/middleware"
 
 	"github.com/gofiber/fiber/v2"
+	swagger "github.com/gofiber/swagger"
 )
 
 func SetupRoutes(
@@ -72,4 +73,9 @@ func SetupRoutes(
 	api.Get("/achievements/:id/history", achievementService.GetHistory)
 	api.Post("/achievements/:id/attachments", achievementService.UploadAttachment)
 	api.Get("/reports/student/:id", reportService.GetStudentReport)
+
+	// SWAGGER
+	app.Get("/swagger/*", swagger.New(swagger.Config{
+	URL: "/docs/swagger.yaml",
+	}))
 }
