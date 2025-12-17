@@ -67,3 +67,7 @@ type AdminUpdateUserRequest struct {
     NIP            string `json:"nip"`
     Department     string `json:"department"`
 }
+
+type AdminUpdateUserRoleRequest struct {
+	Role string `json:"role"`
+}
